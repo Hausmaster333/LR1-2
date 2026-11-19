@@ -1,0 +1,46 @@
+{
+ "width": 1240,
+ "height": 720,
+ "panels": [
+
+ ],
+ "boxes": [
+  {"key": "index", "cx": 170, "cy": 60, "w": 220, "label": "Индекс", "h": 56, "note": "имя, расширение → файлы"},
+  {"key": "vfs", "cx": 560, "cy": 60, "w": 310, "label": "Виртуальная файловая система", "main": true},
+  {"key": "set", "cx": 1000, "cy": 60, "w": 220, "label": "Тестовый набор", "h": 56, "note": "сгенерированный каталог"},
+  {"key": "dir", "cx": 560, "cy": 200, "w": 160, "label": "Каталог"},
+  {"key": "path", "cx": 300, "cy": 340, "w": 140, "label": "Путь"},
+  {"key": "node", "cx": 560, "cy": 340, "w": 170, "label": "Узел ФС", "h": 56, "note": "каталог или файл"},
+  {"key": "name", "cx": 882, "cy": 289, "w": 220, "label": "Имя и расширение"},
+  {"key": "file", "cx": 560, "cy": 480, "w": 140, "label": "Файл"},
+  {"key": "query", "cx": 882, "cy": 422, "w": 200, "label": "Поисковый запрос"},
+  {"key": "method", "cx": 1145, "cy": 422, "w": 180, "label": "Способ поиска", "h": 56, "note": "обход или индекс"},
+  {"key": "real", "cx": 250, "cy": 610, "w": 240, "label": "Реальный файл на диске"},
+  {"key": "content", "cx": 560, "cy": 610, "w": 170, "label": "Содержимое", "h": 56, "note": "размер и данные"},
+  {"key": "result", "cx": 916, "cy": 555, "w": 200, "label": "Результат поиска", "h": 56, "note": "время поиска"}
+ ],
+ "edges": [
+  {"from": "vfs", "to": "index"},
+  {"from": "vfs", "to": "dir", "at": [10, 0], "anchor": "start", "label": "корень «/»"},
+  {"from": "set", "to": "dir", "dashed": true},
+  {"from": "dir", "to": "node", "dashed": true},
+  {"from": "dir", "to": "node", "at": [10, 0], "anchor": "start", "via": [[700, 270]], "label": "дети"},
+  {"from": "file", "to": "node", "dashed": true},
+  {"from": "node", "to": "path"},
+  {"from": "node", "to": "name"},
+  {"from": "index", "to": "file", "at": [12, -40], "anchor": "start", "via": [[170, 480]], "label": "ссылки\nбез владения"},
+  {"from": "query", "to": "name", "at": [-33, -1], "anchor": "start", "label": "имя или\nрасширение"},
+  {"from": "query", "to": "method"},
+  {"from": "file", "to": "content"},
+  {"from": "content", "to": "real", "at": [0, -26], "label": "источник,\nтолько чтение"},
+  {"from": "result", "to": "file", "at": [-42, 0], "anchor": "start", "label": "найденные файлы"}
+ ],
+ "arrows": [
+  {"points": [[870, 660], [940, 660]], "dashed": true},
+  {"points": [[870, 700], [940, 700]]}
+ ],
+ "labels": [
+  {"x": 952, "y": 660, "text": "является: экземпляр, разновидность", "anchor": "start"},
+  {"x": 952, "y": 700, "text": "имеет: атрибут, часть", "anchor": "start"}
+ ]
+}

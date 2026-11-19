@@ -1,0 +1,44 @@
+flowchart TB
+    subgraph programs["Программы"]
+        gui["gui"]
+        cli["benchmark"]
+    end
+    subgraph shell["include/gui: оболочка"]
+        explorer["ExplorerPanel: проводник, генератор"]
+        search["SearchPanel: поиск обоими способами"]
+        benchp["BenchmarkPanel: графики, CSV"]
+        picker["FilePicker: выбор реального файла"]
+    end
+    subgraph bench["include/bench"]
+        vb["vfs_benchmark: замеры, CSV"]
+    end
+    subgraph model["include/vfs: модель ФС"]
+        vfs["VirtualFileSystem"]
+        nodes["FsNode, Directory, File"]
+        index["FileIndex"]
+        content["IContentSource"]
+    end
+    subgraph tree["include/tree: из ЛР-1"]
+        dict["TreeDictionary"]
+        bst["BinarySearchTree (AVL)"]
+    end
+    subgraph base["include/core, include/ptr"]
+        core["DynamicArray, IDictionary, IEnumerator"]
+        ptr["UnqPtr, ShrdPtr, WeakPtr (из ДЗ-1)"]
+    end
+    disk[("Реальная ФС")]
+
+    gui --> explorer & search & benchp
+    explorer --> picker
+    explorer -- "меняет" --> vfs
+    search -- "только читает" --> vfs
+    benchp --> vb
+    cli --> vb
+    vb -- "свои экземпляры" --> vfs
+    vfs --> nodes & index
+    nodes --> content
+    nodes --> dict
+    index --> dict
+    content -. "только чтение" .-> disk
+    dict --> bst
+    bst --> core & ptr

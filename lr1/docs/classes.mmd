@@ -1,0 +1,88 @@
+classDiagram
+    direction TB
+    class ICollection~T~ {
+        <<interface>>
+        +get(index) T
+        +get_count() int
+        +contains(value) bool
+    }
+    class IEnumerable~T~ {
+        <<interface>>
+        +get_enumerator() UnqPtr~IEnumerator~
+    }
+    class IEnumerator~T~ {
+        <<interface>>
+        +move_next() bool
+        +get_current() T
+        +reset()
+    }
+    class BinarySearchTree~T~ {
+        -root : ShrdPtr~Node~
+        -thread_head : WeakPtr~Node~ - начало нитей
+        -thread_order : TraversalOrder
+        -version : ShrdPtr~size_t~
+        +insert(value) / remove(value)
+        +try_find(value) Option~T~
+        +get(index) / index_of(value)
+        +map(f) / where(pred) / reduce(f, init, order)
+        +get_subtree(value) / contains_subtree(other)
+        +thread(order) / get_threaded_enumerator()
+        +to_string(format) / from_string(text, format)
+        +operator[] / += / -= / == / !=(value)
+    }
+    class Node {
+        value : T
+        left, right : ShrdPtr~Node~
+        height, subtree_size : int
+        thread_next : WeakPtr~Node~ - нить, не владеет
+    }
+    class TreeEnumerator {
+        -walker : NodeWalker
+        -guard : VersionGuard
+    }
+    class ThreadedEnumerator {
+        -head : WeakPtr~Node~
+        -current : ShrdPtr~Node~ - текущий
+        -guard : VersionGuard
+    }
+    class NodeWalker {
+        -nodes : DynamicArray~ShrdPtr~Node~~
+        -steps : DynamicArray~int~
+        -order : TraversalOrder
+        +next() ShrdPtr~Node~, пустой в конце
+    }
+    class VersionGuard {
+        -version : ShrdPtr~size_t~
+        -expected : size_t
+        +check()
+    }
+    class TraversalOrder {
+        -parts[3] : TreePart
+    }
+    class TraversalFormat {
+        -literals[4] : string
+        -order : TraversalOrder
+    }
+    class ValueCodec~T~ {
+        <<специализации по типам>>
+        +to_string(value) string
+        +from_string(text) T
+    }
+
+    ICollection <|.. BinarySearchTree
+    IEnumerable <|.. BinarySearchTree
+    IEnumerator <|.. TreeEnumerator
+    IEnumerator <|.. ThreadedEnumerator
+    BinarySearchTree *-- "0..*" Node : root владеет
+    Node *-- "0..2" Node : left, right
+    Node --> "0..1" Node : thread_next, не владеет
+    BinarySearchTree ..> TreeEnumerator : создаёт
+    BinarySearchTree ..> ThreadedEnumerator : создаёт
+    TreeEnumerator *-- NodeWalker
+    TreeEnumerator *-- VersionGuard
+    ThreadedEnumerator *-- VersionGuard
+    VersionGuard --> BinarySearchTree : общий счётчик version
+    NodeWalker --> TraversalOrder
+    TraversalFormat *-- TraversalOrder
+    BinarySearchTree ..> TraversalFormat : строка
+    BinarySearchTree ..> ValueCodec : значение ↔ строка

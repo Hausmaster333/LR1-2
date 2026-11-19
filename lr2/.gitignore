@@ -1,0 +1,6 @@
+*.exe
+build/
+/unit_tests
+/benchmark
+/gui
+*.csv

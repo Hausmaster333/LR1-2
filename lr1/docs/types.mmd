@@ -1,0 +1,36 @@
+classDiagram
+    direction TB
+    class Person {
+        -id : Person_ID
+        -first_name, middle_name, last_name : string, наружу char* через c_str
+        +get_full_name() string
+        +operator<() по id
+    }
+    class Person_ID {
+        +series : int
+        +number : int
+    }
+    class Student {
+        -grade_book_num : int
+        -group_id : string, наружу char* через c_str
+    }
+    class Teacher {
+        -depart_num : int
+        -position : string, наружу char* через c_str
+    }
+    class Complex {
+        -real, imag : double
+        +modulus() double
+        +operator<() по модулю
+    }
+    class ValueCodec~T~ {
+        <<int, double, string, Complex, Student, Teacher>>
+        +to_string(value) string
+        +from_string(text) T
+    }
+    Person *-- Person_ID : id
+    Person <|-- Student
+    Person <|-- Teacher
+    ValueCodec ..> Complex
+    ValueCodec ..> Student
+    ValueCodec ..> Teacher

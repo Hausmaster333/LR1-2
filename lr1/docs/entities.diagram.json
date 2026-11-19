@@ -1,0 +1,20 @@
+{
+ "width": 744,
+ "height": 122,
+ "panels": [],
+ "boxes": [
+  {"key": "tree", "cx": 146, "cy": 61, "w": 232, "label": "Бинарное дерево поиска", "main": true},
+  {"key": "node", "cx": 374, "cy": 61, "w": 100, "label": "Узел"},
+  {"key": "elem", "cx": 617, "cy": 31, "w": 150, "label": "Элемент"},
+  {"key": "sub", "cx": 617, "cy": 91, "w": 150, "label": "Поддерево"}
+ ],
+ "edges": [
+  {"from": "tree", "to": "node", "at": [0, -17], "label": "корень"},
+  {"from": "node", "to": "elem"},
+  {"from": "node", "to": "sub", "at": [-12, 19], "label": "левое и правое"}
+ ],
+ "arrows": [],
+ "labels": [
+  {"x": 29, "y": 107, "text": "Стрелка означает «имеет»", "anchor": "start"}
+ ]
+}

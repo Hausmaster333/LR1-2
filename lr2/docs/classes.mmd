@@ -1,0 +1,90 @@
+classDiagram
+    direction TB
+    class VirtualFileSystem {
+        -root : ShrdPtr~Directory~
+        -index : FileIndex
+        +make_directory(path)
+        +attach_file(real_path, dir, name)
+        +import_directory(real_path, dir)
+        +add_file(dir, name, content)
+        +remove(path)
+        +move(path, target_dir)
+        +rename(path, new_name)
+        +list(dir) DynamicArray
+        +find_files(field, value, method) DynamicArray
+    }
+    class FsNode {
+        <<abstract>>
+        -name : string
+        -parent : WeakPtr~Directory~ - не владеет
+        +get_path() string
+        +is_directory()* bool
+    }
+    class Directory {
+        -children : TreeDictionary
+        -subdirectory_count : int
+        +create(name)$ ShrdPtr~Directory~
+        +find_child(name) ShrdPtr~FsNode~ или пустой
+        +list() DynamicArray~ShrdPtr~FsNode~~
+        +add_child(child)
+        +remove_child(name) ShrdPtr~FsNode~
+        +rename_child(old_name, new_name)
+    }
+    class File {
+        -content : UnqPtr~IContentSource~
+        +get_content() IContentSource
+    }
+    class IContentSource {
+        <<interface>>
+        +get_size() long long
+        +read_beginning(max_bytes) string
+        +get_location() string
+    }
+    class RealFileSource {
+        -real_path : string
+    }
+    class GeneratedSource
+    class FileIndex {
+        -by_name : TreeDictionary
+        -by_extension : TreeDictionary
+        +add(file)
+        +remove(file)
+        +rename(file, old_name)
+        +add_subtree(node)
+        +remove_subtree(node)
+        +find(field, value) DynamicArray
+    }
+    class FileRef {
+        +id : uint64
+        +file : WeakPtr~File~ - не владеет
+    }
+    class IDictionary~K,V~ {
+        <<interface>>
+        +get(key) V
+        +add(key, value)
+        +remove(key)
+        +contains_key(key) bool
+    }
+    class TreeDictionary~K,V~ {
+        -entries : BinarySearchTree~KeyValue~
+        +get_threaded_enumerator()
+    }
+    class BinarySearchTree~T~ {
+        AVL + прошивка, из ЛР-1
+    }
+
+    VirtualFileSystem *-- "1" Directory : root
+    VirtualFileSystem *-- "1" FileIndex : index
+    FsNode <|-- Directory
+    FsNode <|-- File
+    Directory *-- "0..*" FsNode : дети по имени
+    FsNode --> "0..1" Directory : parent, не владеет
+    File *-- "1" IContentSource : content
+    IContentSource <|.. RealFileSource
+    IContentSource <|.. GeneratedSource
+    FileIndex o-- "0..*" FileRef : множества
+    FileRef --> "1" File : не владеет
+    IDictionary <|.. TreeDictionary
+    TreeDictionary *-- "1" BinarySearchTree
+    Directory ..> TreeDictionary : хранит детей
+    FileIndex ..> TreeDictionary : хранит индексы

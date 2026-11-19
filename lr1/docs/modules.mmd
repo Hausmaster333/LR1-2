@@ -1,0 +1,37 @@
+flowchart TB
+    subgraph programs["Программы"]
+        gui["gui"]
+        cli["benchmark"]
+    end
+    subgraph shell["include/gui"]
+        panel["TreePanel&lt;T&gt; ×6 типов: дерево, обходы, прошивка, map/where/reduce, строки"]
+        benchp["BenchmarkPanel: графики, CSV"]
+        values["gui_values: пресеты и генераторы значений"]
+    end
+    subgraph bench["include/bench"]
+        tb["tree_benchmark: замеры против std::set, CSV"]
+    end
+    subgraph tree["include/tree"]
+        bst["BinarySearchTree&lt;T&gt;: AVL, прошивка, перечислители"]
+        trav["TraversalOrder, TraversalFormat"]
+    end
+    subgraph types["include/types"]
+        codec["ValueCodec&lt;T&gt;"]
+        elems["Complex, Person, Student, Teacher"]
+    end
+    subgraph base["include/core, include/ptr"]
+        core["ICollection, IEnumerable, IEnumerator, DynamicArray, Option"]
+        ptr["UnqPtr, ShrdPtr, WeakPtr (из ДЗ-1)"]
+    end
+
+    gui --> panel & benchp
+    panel --> values
+    benchp --> tb
+    cli --> tb
+    panel --> bst
+    tb --> bst
+    bst --> trav
+    bst --> codec
+    codec --> elems
+    bst --> core & ptr
+    elems --> ptr

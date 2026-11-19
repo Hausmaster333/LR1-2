@@ -1,0 +1,158 @@
+#include "vfs/virtual_file_system.h"
+#include <gtest/gtest.h>
+#include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <random>
+#include <string>
+#include <vector>
+
+namespace fs = std::filesystem;
+
+namespace {
+    // Пути найденных файлов, отсортированные: порядок результатов не гарантирован
+    std::vector<std::string> paths(const DynamicArray<ShrdPtr<const File>>& files) {
+        std::vector<std::string> result;
+        for (int index = 0; index < files.get_size(); index++) {
+            result.push_back(files.get(index)->get_path());
+        }
+        std::sort(result.begin(), result.end());
+        return result;
+    }
+
+    // Все каталоги ФС, начиная с корня
+    void collect_directories(const VirtualFileSystem& vfs, const std::string& path,
+                             std::vector<std::string>& out) {
+        out.push_back(path);
+        DynamicArray<ShrdPtr<const FsNode>> children = vfs.list(path);
+        for (int index = 0; index < children.get_size(); index++) {
+            if (children.get(index)->is_directory()) {
+                collect_directories(vfs, children.get(index)->get_path(), out);
+            }
+        }
+    }
+}
+
+// Временная папка с настоящими файлами one.txt, data/two.txt, data/inner/three.LOG.
+// find() ищет и обходом, и по индексу: любое расхождение индекса с ФС - ошибка теста.
+class SearchTest : public ::testing::Test {
+    protected:
+        fs::path real_dir;
+        VirtualFileSystem vfs;
+
+        void SetUp() override {
+            const auto* test = ::testing::UnitTest::GetInstance()->current_test_info();
+            real_dir = fs::temp_directory_path() / (std::string("search_tests_") + test->name());
+            fs::remove_all(real_dir);
+            fs::create_directories(real_dir / "data" / "inner");
+            for (const char* name : {"one.txt", "data/two.txt", "data/inner/three.LOG"}) {
+                std::ofstream(real_dir / name) << name;
+            }
+        }
+
+        void TearDown() override { fs::remove_all(real_dir); }
+
+        // Для поиска важно только имя, поэтому все виртуальные файлы смотрят на one.txt
+        void attach(const std::string& directory, const std::string& name) {
+            vfs.attach_file((real_dir / "one.txt").u8string(), directory, name);
+        }
+
+        std::vector<std::string> find(SearchField field, const std::string& value) {
+            std::vector<std::string> by_scan = paths(vfs.find_files(field, value, SearchMethod::FullScan));
+            std::vector<std::string> by_index = paths(vfs.find_files(field, value, SearchMethod::Index));
+            EXPECT_EQ(by_scan, by_index) << value;
+            return by_index;
+        }
+};
+
+TEST_F(SearchTest, ByNameFindsFilesInAllDirectories) {
+    vfs.make_directory("/a");
+    vfs.make_directory("/a/b");
+    attach("/", "report.txt");
+    attach("/a/b", "report.txt");
+    attach("/a", "other.txt");
+
+    EXPECT_EQ(find(SearchField::Name, "report.txt"),
+              (std::vector<std::string>{"/a/b/report.txt", "/report.txt"}));
+    EXPECT_TRUE(find(SearchField::Name, "Report.txt").empty()); // Имя - с учётом регистра
+    EXPECT_TRUE(find(SearchField::Name, "missing").empty());
+}
+
+TEST_F(SearchTest, ByExtensionIgnoresCaseAndDot) {
+    attach("/", "a.TXT");
+    attach("/", "b.txt");
+    attach("/", "c.log");
+    for (const char* query : {"txt", ".txt", "TXT"}) {
+        EXPECT_EQ(find(SearchField::Extension, query), (std::vector<std::string>{"/a.TXT", "/b.txt"}));
+    }
+}
+
+// У ".hidden" нет расширения: точка в начале - часть имени
+TEST_F(SearchTest, EmptyExtensionFindsFilesWithoutIt) {
+    attach("/", "b.txt");
+    attach("/", "noext");
+    attach("/", ".hidden");
+    EXPECT_EQ(find(SearchField::Extension, ""), (std::vector<std::string>{"/.hidden", "/noext"}));
+}
+
+TEST_F(SearchTest, IndexSeesImportedFiles) {
+    vfs.import_directory((real_dir / "data").u8string(), "/");
+    EXPECT_EQ(find(SearchField::Extension, "log"), (std::vector<std::string>{"/data/inner/three.LOG"}));
+}
+
+TEST_F(SearchTest, IndexFollowsRename) {
+    vfs.import_directory((real_dir / "data").u8string(), "/");
+    vfs.rename("/data/two.txt", "renamed.log");
+    EXPECT_TRUE(find(SearchField::Name, "two.txt").empty());
+    EXPECT_EQ(find(SearchField::Extension, "log").size(), 2u);
+}
+
+// Индекс хранит сами файлы, а путь файл считает заново, поэтому move индекс не трогает
+TEST_F(SearchTest, IndexFollowsMove) {
+    vfs.import_directory((real_dir / "data").u8string(), "/");
+    vfs.make_directory("/moved");
+    vfs.move("/data/inner", "/moved");
+    EXPECT_EQ(find(SearchField::Name, "three.LOG"), (std::vector<std::string>{"/moved/inner/three.LOG"}));
+}
+
+TEST_F(SearchTest, IndexFollowsRemove) {
+    vfs.import_directory((real_dir / "data").u8string(), "/");
+    vfs.rename("/data/two.txt", "renamed.log");
+    vfs.remove("/data/inner"); // Каталог целиком: файл внутри тоже уходит из индекса
+    vfs.remove("/data/renamed.log");
+    EXPECT_TRUE(find(SearchField::Extension, "log").empty());
+}
+
+// 400 случайных операций; после каждой find() сверяет индекс с полным обходом
+TEST_F(SearchTest, IndexMatchesFullScanAfterRandomOperations) {
+    const char* names[] = {"a.txt", "b.TXT", "c.log", "noext", "a.log"};
+    std::mt19937 random(11);
+    auto pick = [&random](int size) { return static_cast<int>(random() % size); };
+
+    for (int step = 0; step < 400; step++) {
+        std::vector<std::string> directories;
+        collect_directories(vfs, "/", directories);
+        std::string directory = directories[pick(directories.size())];
+        std::string name = names[pick(5)];
+
+        // Все файлы ФС: у каждого из них расширение txt, log или пустое
+        std::vector<std::string> files = paths(vfs.find_files(SearchField::Extension, "txt", SearchMethod::FullScan));
+        std::vector<std::string> logs = paths(vfs.find_files(SearchField::Extension, "log", SearchMethod::FullScan));
+        files.insert(files.end(), logs.begin(), logs.end());
+
+        try {
+            switch (pick(6)) {
+                case 0: vfs.make_directory(directory + "/d" + std::to_string(step)); break;
+                case 1: case 2: attach(directory, name); break; // Файлы добавляем вдвое чаще
+                case 3: if (!files.empty()) vfs.rename(files[pick(files.size())], name); break;
+                case 4: if (!files.empty()) vfs.move(files[pick(files.size())], directory); break;
+                case 5: if (directories.size() > 1) vfs.remove(directories[1 + pick(directories.size() - 1)]); break;
+            }
+        } catch (const std::invalid_argument&) {
+            // Имя занято или каталог в самого себя - ФС не изменилась, это тоже проверяется
+        }
+
+        for (const char* query : names) find(SearchField::Name, query);
+        for (const char* query : {"txt", "log", ""}) find(SearchField::Extension, query);
+    }
+}
