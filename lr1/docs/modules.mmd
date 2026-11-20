@@ -4,7 +4,7 @@ flowchart TB
         cli["benchmark"]
     end
     subgraph shell["include/gui"]
-        panel["TreePanel&lt;T&gt; ×6 типов: дерево, обходы, прошивка, map/where/reduce, строки"]
+        panel["TreePanel&lt;T&gt; ×6 типов: дерево, обходы, map/where/reduce, строки"]
         benchp["BenchmarkPanel: графики, CSV"]
         values["gui_values: пресеты и генераторы значений"]
     end
@@ -12,7 +12,7 @@ flowchart TB
         tb["tree_benchmark: замеры против std::set, CSV"]
     end
     subgraph tree["include/tree"]
-        bst["BinarySearchTree&lt;T&gt;: AVL, прошивка, перечислители"]
+        bst["BinarySearchTree&lt;T&gt;: AVL, перечислители"]
         trav["TraversalOrder, TraversalFormat"]
     end
     subgraph types["include/types"]

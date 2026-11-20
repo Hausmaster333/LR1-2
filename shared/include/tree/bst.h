@@ -11,7 +11,6 @@
 #include "ptr/shrd_ptr.h"
 #include "ptr/unq_ptr.h"
 #include "ptr/weak_ptr.h"
-#include <functional>
 #include <string>
 #include <type_traits>
 #include <utility>
@@ -30,7 +29,6 @@ class BinarySearchTree : public ICollection<TreeEntry<K, V>>, public IEnumerable
             ShrdPtr<Node> right;
             int height;
             int subtree_size;
-            WeakPtr<Node> thread_next;
 
             explicit Node(Entry value) : value(std::move(value)), height(1), subtree_size(1) {}
         };
@@ -57,10 +55,6 @@ class BinarySearchTree : public ICollection<TreeEntry<K, V>>, public IEnumerable
         mutable ShrdPtr<Generation> generation;
         NodePtr root;
 
-        mutable WeakPtr<Node> thread_head;
-        std::function<void(const BinarySearchTree&)> thread_rule;
-        mutable bool threads_stale;
-    
         static const int MAX_PARSE_DEPTH = 1000;
 
         explicit BinarySearchTree(NodePtr root);
@@ -96,15 +90,11 @@ class BinarySearchTree : public ICollection<TreeEntry<K, V>>, public IEnumerable
         static void check(const WeakPtr<Generation>& generation);
         WeakPtr<Generation> current_generation() const;
         void on_modified();
-        void clear_threads() const;
 
         template <template <class> class Traversal = DFS, class... Args>
         auto walk(const Args&... args) const {
             return Traversal<ReadOnlyNode>(ReadOnlyNode(root), args...);
         }
-
-        template <template <class> class Traversal, class... Args>
-        void link_threads(const Args&... args) const;
 
     public:
         BinarySearchTree();
@@ -148,11 +138,6 @@ class BinarySearchTree : public ICollection<TreeEntry<K, V>>, public IEnumerable
         template <template <class> class Traversal, class... Args>
         UnqPtr<IEnumerator<Entry>> get_enumerator(const Args&... args) const;
 
-        template <template <class> class Traversal = DFS, class... Args>
-        void thread(const Args&... args);
-        bool is_threaded() const;
-        UnqPtr<IEnumerator<Entry>> get_threaded_enumerator() const;
-
         BinarySearchTree get_subtree(const K& key) const;
         bool contains_subtree(const BinarySearchTree& other) const;
 
@@ -175,21 +160,6 @@ class BinarySearchTree : public ICollection<TreeEntry<K, V>>, public IEnumerable
             public:
                 TraversalEnumerator(const Traversal& walker, const WeakPtr<Generation>& generation)
                     : start(walker), walker(walker), generation(generation) {}
-
-                bool move_next() override;
-                const Entry& get_current() const override;
-                void reset() override;
-        };
-
-        class ThreadedEnumerator : public IEnumerator<Entry> {
-            private:
-                WeakPtr<Node> head;
-                NodePtr current;
-                bool started;
-                WeakPtr<Generation> generation;
-            public:
-                ThreadedEnumerator(const WeakPtr<Node>& head, const WeakPtr<Generation>& generation)
-                    : head(head), started(false), generation(generation) {}
 
                 bool move_next() override;
                 const Entry& get_current() const override;

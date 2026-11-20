@@ -67,10 +67,9 @@ classDiagram
     }
     class TreeDictionary~K,V~ {
         -entries : BinarySearchTree~KeyValue~
-        +get_threaded_enumerator()
     }
     class BinarySearchTree~T~ {
-        AVL + прошивка, из ЛР-1
+        AVL, из ЛР-1
     }
 
     VirtualFileSystem *-- "1" Directory : root

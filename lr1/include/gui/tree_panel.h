@@ -67,9 +67,6 @@ class TreePanel : public ITreePanel {
 
         int order_index = gui_detail::IN_ORDER_INDEX;
         std::string traversal_text;
-        int thread_index = gui_detail::IN_ORDER_INDEX;
-        int threaded_index = gui_detail::IN_ORDER_INDEX; // Каким обходом дерево прошито
-        bool show_threads = true;
 
         ArraySequence<MapPreset<T>> map_presets = GuiValue<T>::map_presets();
         ArraySequence<WherePreset<T>> where_presets = GuiValue<T>::where_presets();
@@ -210,7 +207,7 @@ class TreePanel : public ITreePanel {
         void draw_traversal_section() {
             using namespace panel_detail;
             using namespace gui_detail;
-            if (!ImGui::CollapsingHeader("Обходы и прошивка", ImGuiTreeNodeFlags_DefaultOpen)) {
+            if (!ImGui::CollapsingHeader("Обходы", ImGuiTreeNodeFlags_DefaultOpen)) {
                 return;
             }
 
@@ -232,26 +229,6 @@ class TreePanel : public ITreePanel {
                     }
                     add_log("Обход " + std::string(TRAVERSAL_NAMES[order_index]) + " готов");
                 });
-            }
-
-            ImGui::SetNextItemWidth(130);
-            ImGui::Combo("##thread", &thread_index, TRAVERSAL_NAMES, TRAVERSAL_COUNT);
-            ImGui::SameLine();
-            if (ImGui::Button("Прошить")) {
-                run_action("Прошивка", [&] {
-                    tree.template thread<ListedTraversal>(thread_index);
-                    threaded_index = thread_index;
-                    add_log("Дерево прошито по обходу " + std::string(TRAVERSAL_NAMES[thread_index]));
-                });
-            }
-            ImGui::SameLine();
-            ImGui::Checkbox("показывать нити", &show_threads);
-            if (tree.is_threaded()) {
-                ImGui::TextColored(ImVec4(1.0f, 0.65f, 0.2f, 1.0f),
-                                   "Прошито: %s (нити обновляются при изменениях)",
-                                   TRAVERSAL_NAMES[threaded_index]);
-            } else {
-                ImGui::TextDisabled("Не прошито");
             }
         }
 
@@ -409,8 +386,6 @@ class TreePanel : public ITreePanel {
             int highlight = -1;
             if (is_main && highlighted.has_value()) highlight = shown.index_of(highlighted.get_value());
 
-            if (is_main && show_threads && shown.is_threaded()) draw_threads(shown, center);
-
             int hovered = -1;
             ImVec2 mouse = ImGui::GetIO().MousePos;
             for (int index = 0; index < count; index++) {
@@ -454,48 +429,6 @@ class TreePanel : public ITreePanel {
                 zoom = std::clamp(zoom * (ImGui::GetIO().MouseWheel > 0 ? 1.1f : 0.9f), 0.3f, 2.5f);
             }
             ImGui::EndChild();
-        }
-
-        template <class Center>
-        void draw_threads(const BinarySearchTree<T>& shown, Center center) {
-            ImDrawList* draw = ImGui::GetWindowDrawList();
-            ImU32 color = IM_COL32(255, 150, 40, 200);
-            auto iter = shown.get_threaded_enumerator();
-            int previous = -1;
-            while (iter->move_next()) {
-                int current = shown.index_of(iter->get_current());
-                if (previous < 0) {
-                    draw->AddCircle(center(current), 22.0f * zoom, color, 0, 3.0f);
-                    previous = current;
-                    continue;
-                }
-
-                ImVec2 from = center(previous);
-                ImVec2 to = center(current);
-                ImVec2 delta(to.x - from.x, to.y - from.y);
-                ImVec2 normal(-delta.y * 0.3f, delta.x * 0.3f);
-                ImVec2 control(from.x + delta.x / 2 + normal.x, from.y + delta.y / 2 + normal.y);
-                draw->AddBezierQuadratic(from, control, to, color, 2.0f);
-
-                // Точка и касательная квадратичной кривой при t = 0.5
-                ImVec2 middle((from.x + 2 * control.x + to.x) / 4,
-                              (from.y + 2 * control.y + to.y) / 4);
-                float length = std::sqrt(delta.x * delta.x + delta.y * delta.y);
-                if (length < 1.0f) {
-                    previous = current;
-                    continue;
-                }
-                ImVec2 dir(delta.x / length, delta.y / length);
-                float size = 7.0f * zoom;
-                draw->AddTriangleFilled(
-                    ImVec2(middle.x + dir.x * size, middle.y + dir.y * size),
-                    ImVec2(middle.x - dir.x * size - dir.y * size * 0.7f,
-                           middle.y - dir.y * size + dir.x * size * 0.7f),
-                    ImVec2(middle.x - dir.x * size + dir.y * size * 0.7f,
-                           middle.y - dir.y * size - dir.x * size * 0.7f),
-                    color);
-                previous = current;
-            }
         }
 
         void draw_log() {

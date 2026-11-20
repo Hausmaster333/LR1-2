@@ -8,7 +8,7 @@
 template <class K, class V>
 class TreeDictionary : public IDictionary<K, V> {
     private:
-        mutable BinarySearchTree<K, V> tree;
+        BinarySearchTree<K, V> tree;
     public:
         int get_count() const override { return tree.get_count(); }
         bool contains_key(const K& key) const override { return tree.contains_key(key); }
@@ -24,11 +24,6 @@ class TreeDictionary : public IDictionary<K, V> {
 
         void remove(const K& key) override {
             if (!tree.remove(key)) throw std::out_of_range("Key not found");
-        }
-
-        UnqPtr<IEnumerator<KeyValue<K, V>>> get_threaded_enumerator() const {
-            if (!tree.is_threaded()) tree.thread();
-            return tree.get_threaded_enumerator();
         }
 
         UnqPtr<IEnumerator<KeyValue<K, V>>> get_enumerator() const override {

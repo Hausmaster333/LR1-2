@@ -93,16 +93,6 @@ namespace {
     };
 
     template <class Node>
-    struct InterruptedTraversal {
-        Node root;
-        InterruptedTraversal(const Node& root) : root(root) {}
-        Node next() {
-            if (!root) throw std::runtime_error("Traversal interrupted");
-            return std::exchange(root, Node());
-        }
-    };
-
-    template <class Node>
     class LeavesOnly {
         private:
             DFS<Node> walker;
@@ -250,7 +240,7 @@ TEST(BstBalance, RandomOperationsMatchStdSet) {
 //         4
 //      2     6
 //     1 3   5 7
-// Перечислитель, to_array и прошивка должны давать один и тот же порядок
+// Перечислитель и to_array должны давать один и тот же порядок
 TEST(BstOrders, AllSixOrdersAgree) {
     struct Case {
         const char* order;
@@ -271,8 +261,6 @@ TEST(BstOrders, AllSixOrdersAgree) {
 
         EXPECT_EQ(collect(tree.get_enumerator<DFS>(traversal)), test.expected) << test.order;
         EXPECT_EQ(to_sequence(tree.to_array<DFS>(traversal)), test.expected) << test.order;
-        tree.thread<DFS>(traversal);
-        EXPECT_EQ(collect(tree.get_threaded_enumerator()), test.expected) << test.order;
     }
 }
 
@@ -446,116 +434,6 @@ TEST(DynamicArrayMove, ResizeKeepsMovedElements) {
     EXPECT_EQ(*array.get(0), 5);
     EXPECT_EQ(array.get(0).use_count(), 1u);
     EXPECT_FALSE(array.get(3));
-}
-
-// ---------- Прошивка ----------
-
-TEST(BstThread, ThreadedEnumeratorNeedsThread) {
-    BinarySearchTree<int> tree = make_tree({2, 1, 3});
-    EXPECT_THROW(tree.get_threaded_enumerator(), std::logic_error);
-
-    tree.thread<DFS>("ПКЛ");
-    EXPECT_TRUE(tree.is_threaded());
-    EXPECT_EQ(collect(tree.get_threaded_enumerator()), (ArraySequence<int>{3, 2, 1}));
-}
-
-// Прошивка - свойство дерева: после вставок и удалений нити идут тем же обходом по новому дереву
-TEST(BstThread, ChangesKeepThreadUpToDate) {
-    std::string order("КЛП");
-    BinarySearchTree<int> tree = make_tree({2, 1, 3});
-    tree.thread<DFS>(order);
-
-    for (int value : {4, 5, 6, 0}) tree.insert(value); // С поворотами: корень меняется
-    EXPECT_TRUE(tree.is_threaded());
-    EXPECT_EQ(collect(tree.get_threaded_enumerator()), collect(tree.get_enumerator<DFS>(order)));
-
-    tree.remove(4);
-    tree.remove(0);
-    EXPECT_EQ(collect(tree.get_threaded_enumerator()), collect(tree.get_enumerator<DFS>(order)));
-
-    tree.clear();
-    EXPECT_TRUE(tree.is_threaded());
-    EXPECT_TRUE(collect(tree.get_threaded_enumerator()).empty());
-    tree.insert(7);
-    EXPECT_EQ(collect(tree.get_threaded_enumerator()), (ArraySequence<int>{7}));
-}
-
-// Прошить можно любой стратегией, и обновляется прошивка тоже по ней
-TEST(BstThread, AnyStrategy) {
-    BinarySearchTree<int> tree = make_tree({4, 2, 6, 1, 3, 5, 7});
-    tree.thread<BFS>();
-    EXPECT_EQ(collect(tree.get_threaded_enumerator()), (ArraySequence<int>{4, 2, 6, 1, 3, 5, 7}));
-    tree.remove(4);
-    EXPECT_EQ(collect(tree.get_threaded_enumerator()), collect(tree.get_enumerator<BFS>()));
-
-    tree.thread<RightSpine>(); // Узлы вне правой ветви нитей не получают
-    EXPECT_EQ(collect(tree.get_threaded_enumerator()), collect(tree.get_enumerator<RightSpine>()));
-}
-
-TEST(BstThread, ThreadedEnumeratorInvalidatedByInsert) {
-    BinarySearchTree<int> tree = make_tree({2, 1, 3});
-    tree.thread();
-    auto iter = tree.get_threaded_enumerator();
-    ASSERT_TRUE(iter->move_next());
-    tree.insert(4);
-    EXPECT_THROW(iter->move_next(), std::logic_error);
-}
-
-TEST(BstThread, FailedInsertKeepsThread) {
-    BinarySearchTree<int> tree = make_tree({2, 1, 3});
-    tree.thread();
-    EXPECT_FALSE(tree.insert(3));
-    EXPECT_TRUE(tree.is_threaded());
-}
-
-TEST(BstThread, RemoveInvalidatesThreadedEnumerator) {
-    BinarySearchTree<int> tree = make_tree({2, 1, 3});
-    tree.thread();
-    auto iter = tree.get_threaded_enumerator();
-    ASSERT_TRUE(iter->move_next());
-    tree.remove(2);
-    EXPECT_THROW(iter->move_next(), std::logic_error);
-}
-
-TEST(BstThread, RethreadInvalidatesThreadedEnumerator) {
-    BinarySearchTree<int> tree = make_tree({2, 1, 3});
-    tree.thread();
-    auto iter = tree.get_threaded_enumerator();
-    tree.thread<DFS>("ПКЛ"); // Нити переписаны
-    EXPECT_THROW(iter->move_next(), std::logic_error);
-}
-
-TEST(BstThread, FailedRethreadInvalidatesOldEnumerator) {
-    auto tree = make_tree({2, 1, 3});
-    tree.thread();
-    auto old = tree.get_threaded_enumerator();
-    EXPECT_THROW(tree.thread<InterruptedTraversal>(), std::runtime_error);
-    EXPECT_THROW(old->move_next(), std::logic_error);
-    EXPECT_FALSE(tree.is_threaded());
-    EXPECT_THROW(tree.get_threaded_enumerator(), std::logic_error);
-
-    tree.thread();
-    EXPECT_EQ(collect(tree.get_threaded_enumerator()), (ArraySequence<int>{1, 2, 3}));
-}
-
-// Нити - WeakPtr: удалённые узлы не всплывают ни при обновлении, ни при повторной прошивке
-TEST(BstThread, RethreadAfterRemoveSkipsRemoved) {
-    BinarySearchTree<int> tree = make_tree({4, 2, 6, 1, 3, 5, 7});
-    tree.thread();
-    tree.remove(4);
-    tree.remove(1);
-    EXPECT_EQ(collect(tree.get_threaded_enumerator()), (ArraySequence<int>{2, 3, 5, 6, 7}));
-    tree.thread();
-    EXPECT_EQ(collect(tree.get_threaded_enumerator()), (ArraySequence<int>{2, 3, 5, 6, 7}));
-}
-
-// Нити копии ведут по её собственным узлам, а не по узлам оригинала
-TEST(BstThread, CopyKeepsOwnThread) {
-    BinarySearchTree<int> tree = make_tree({2, 1, 3});
-    tree.thread<DFS>("КЛП");
-    BinarySearchTree<int> copy(tree);
-    tree.clear();
-    EXPECT_EQ(collect(copy.get_threaded_enumerator()), (ArraySequence<int>{2, 1, 3}));
 }
 
 // ---------- map / where / reduce ----------
@@ -883,10 +761,9 @@ TEST(BstAnyType, ValueNeedsOnlyMove) {
     tree.find_value(1).rename("A"); // Значение меняется прямо в дереве
     EXPECT_EQ(tree.find(1).value.get_name(), "A");
 
-    tree.thread<DFS>("ПКЛ");
     tree.insert({3, Resource("c")});
     std::string names;
-    auto iter = tree.get_threaded_enumerator();
+    auto iter = tree.get_enumerator<DFS>("ПКЛ");
     while (iter->move_next()) names += iter->get_current().value.get_name();
     EXPECT_EQ(names, "cbA");
 

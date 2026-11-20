@@ -41,35 +41,10 @@ void BinarySearchTree<K, V>::TraversalEnumerator<Traversal>::reset() {
 }
 
 template <class K, class V>
-bool BinarySearchTree<K, V>::ThreadedEnumerator::move_next() {
-    check(generation);
-    if (!started) {
-        current = head.lock();
-    } else if (current) {
-        current = current->thread_next.lock();
-    }
-    started = true;
-    return bool(current);
-}
+BinarySearchTree<K, V>::BinarySearchTree() = default;
 
 template <class K, class V>
-const TreeEntry<K, V>& BinarySearchTree<K, V>::ThreadedEnumerator::get_current() const {
-    check(generation);
-    if (!current) throw std::logic_error("Enumerator has no current element");
-    return current->value;
-}
-
-template <class K, class V>
-void BinarySearchTree<K, V>::ThreadedEnumerator::reset() {
-    current.reset();
-    started = false;
-}
-
-template <class K, class V>
-BinarySearchTree<K, V>::BinarySearchTree() : root(), threads_stale(false) {}
-
-template <class K, class V>
-BinarySearchTree<K, V>::BinarySearchTree(NodePtr root) : root(std::move(root)), threads_stale(false) {}
+BinarySearchTree<K, V>::BinarySearchTree(NodePtr root) : root(std::move(root)) {}
 
 template <class K, class V>
 BinarySearchTree<K, V>::BinarySearchTree(const Entry* items, int count) : BinarySearchTree() {
@@ -81,15 +56,10 @@ BinarySearchTree<K, V>::BinarySearchTree(const Entry* items, int count) : Binary
 
 template <class K, class V>
 BinarySearchTree<K, V>::BinarySearchTree(const BinarySearchTree<K, V>& other)
-    : root(clone(other.root)), thread_rule(other.thread_rule), threads_stale(other.is_threaded()) {}
+    : root(clone(other.root)) {}
 
 template <class K, class V>
-BinarySearchTree<K, V>::BinarySearchTree(BinarySearchTree<K, V>&& other) noexcept
-    : generation(std::move(other.generation)), 
-      root(std::move(other.root)),
-      thread_head(std::move(other.thread_head)), thread_rule(std::move(other.thread_rule)), threads_stale(other.threads_stale) {
-    other.thread_rule = nullptr;
-}
+BinarySearchTree<K, V>::BinarySearchTree(BinarySearchTree<K, V>&& other) noexcept = default;
 
 template <class K, class V>
 BinarySearchTree<K, V>& BinarySearchTree<K, V>::operator=(const BinarySearchTree<K, V>& other) {
@@ -105,10 +75,6 @@ BinarySearchTree<K, V>& BinarySearchTree<K, V>::operator=(BinarySearchTree<K, V>
     if (this == &other) return *this;
 
     root = std::move(other.root);
-    thread_head = std::move(other.thread_head);
-    thread_rule = std::move(other.thread_rule);
-    other.thread_rule = nullptr;
-    threads_stale = other.threads_stale;
     generation = std::move(other.generation);
     return *this;
 }
@@ -298,34 +264,6 @@ BinarySearchTree<K, V>::build_balanced(const DynamicArray<NodePtr>& sorted, int 
 template <class K, class V>
 void BinarySearchTree<K, V>::on_modified() {
     generation.reset();
-    if (thread_rule) threads_stale = true;
-}
-
-template <class K, class V>
-void BinarySearchTree<K, V>::clear_threads() const {
-    auto walker = walk();
-    while (ReadOnlyNode node = walker.next())
-        node.node->thread_next.reset();
-    thread_head.reset();
-}
-
-template <class K, class V>
-template <template <class> class Traversal, class... Args>
-void BinarySearchTree<K, V>::link_threads(const Args&... args) const {
-    clear_threads();
-    NodePtr previous;
-    auto walker = walk<Traversal>(args...);
-    while (ReadOnlyNode view = walker.next()) {
-        const NodePtr& node = view.node;
-
-        if (!previous) {
-            thread_head = node;
-        } else {
-            previous->thread_next = node;
-        }
-        previous = node;
-    }
-    threads_stale = false;
 }
 
 template <class K, class V>
@@ -471,28 +409,6 @@ bool BinarySearchTree<K, V>::contains_subtree(const BinarySearchTree<K, V>& othe
 
     const NodePtr& node = find_link(root, key_of(other.root->value));
     return node && same_structure(node, other.root);
-}
-
-template <class K, class V>
-template <template <class> class Traversal, class... Args>
-void BinarySearchTree<K, V>::thread(const Args&... args) {
-    auto rule = [args...](const BinarySearchTree& tree) { tree.link_threads<Traversal>(args...); };
-    generation.reset();
-    thread_rule = nullptr;
-    link_threads<Traversal>(args...);
-    thread_rule = std::move(rule);
-}
-
-template <class K, class V>
-bool BinarySearchTree<K, V>::is_threaded() const {
-    return thread_rule != nullptr;
-}
-
-template <class K, class V>
-UnqPtr<IEnumerator<TreeEntry<K, V>>> BinarySearchTree<K, V>::get_threaded_enumerator() const {
-    if (!thread_rule) throw std::logic_error("Tree is not threaded");
-    if (threads_stale) thread_rule(*this);
-    return UnqPtr<ThreadedEnumerator>::make(thread_head, current_generation());
 }
 
 template <class K, class V>

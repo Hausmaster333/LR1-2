@@ -18,15 +18,12 @@ classDiagram
     }
     class BinarySearchTree~T~ {
         -root : ShrdPtr~Node~
-        -thread_head : WeakPtr~Node~ - начало нитей
-        -thread_order : TraversalOrder
         -version : ShrdPtr~size_t~
         +insert(value) / remove(value)
         +try_find(value) Option~T~
         +get(index) / index_of(value)
         +map(f) / where(pred) / reduce(f, init, order)
         +get_subtree(value) / contains_subtree(other)
-        +thread(order) / get_threaded_enumerator()
         +to_string(format) / from_string(text, format)
         +operator[] / += / -= / == / !=(value)
     }
@@ -34,15 +31,9 @@ classDiagram
         value : T
         left, right : ShrdPtr~Node~
         height, subtree_size : int
-        thread_next : WeakPtr~Node~ - нить, не владеет
     }
     class TreeEnumerator {
         -walker : NodeWalker
-        -guard : VersionGuard
-    }
-    class ThreadedEnumerator {
-        -head : WeakPtr~Node~
-        -current : ShrdPtr~Node~ - текущий
         -guard : VersionGuard
     }
     class NodeWalker {
@@ -72,15 +63,11 @@ classDiagram
     ICollection <|.. BinarySearchTree
     IEnumerable <|.. BinarySearchTree
     IEnumerator <|.. TreeEnumerator
-    IEnumerator <|.. ThreadedEnumerator
     BinarySearchTree *-- "0..*" Node : root владеет
     Node *-- "0..2" Node : left, right
-    Node --> "0..1" Node : thread_next, не владеет
     BinarySearchTree ..> TreeEnumerator : создаёт
-    BinarySearchTree ..> ThreadedEnumerator : создаёт
     TreeEnumerator *-- NodeWalker
     TreeEnumerator *-- VersionGuard
-    ThreadedEnumerator *-- VersionGuard
     VersionGuard --> BinarySearchTree : общий счётчик version
     NodeWalker --> TraversalOrder
     TraversalFormat *-- TraversalOrder

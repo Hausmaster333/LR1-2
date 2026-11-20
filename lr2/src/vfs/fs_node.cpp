@@ -24,9 +24,9 @@ ShrdPtr<FsNode> Directory::find_child(const std::string& name) const {
 DynamicArray<ShrdPtr<const FsNode>> Directory::list() const {
     DynamicArray<ShrdPtr<const FsNode>> result(children.get_count());
     int index = 0;
-    // Два прохода по нитям прошивки: сначала каталоги, затем файлы
+    // Два прохода по ключам: сначала каталоги, затем файлы
     for (bool directories : {true, false}) {
-        auto iter = children.get_threaded_enumerator();
+        auto iter = children.get_enumerator();
         while (iter->move_next()) {
             const ShrdPtr<FsNode>& child = iter->get_current().value;
             if (child->is_directory() == directories) result.set(index++, child);

@@ -71,24 +71,6 @@ TEST(TreeDictionary, EnumeratesInKeyOrder) {
               (ArraySequence<std::string>{"apple", "banana", "fig", "pear"}));
 }
 
-TEST(TreeDictionary, ThreadedEnumeratorInKeyOrder) {
-    TreeDictionary<std::string, int> dictionary;
-    dictionary.add("b", 0);
-    dictionary.add("a", 0);
-    EXPECT_EQ(keys(dictionary.get_threaded_enumerator()), (ArraySequence<std::string>{"a", "b"}));
-}
-
-// add сбрасывает прошивку, следующий вызов строит её заново и видит новый ключ
-TEST(TreeDictionary, ThreadedEnumeratorSeesNewKeys) {
-    TreeDictionary<std::string, int> dictionary;
-    dictionary.add("b", 0);
-    dictionary.add("a", 0);
-    keys(dictionary.get_threaded_enumerator());
-
-    dictionary.add("c", 0);
-    EXPECT_EQ(keys(dictionary.get_threaded_enumerator()), (ArraySequence<std::string>{"a", "b", "c"}));
-}
-
 // Случайные add / get / remove повторяем на std::map: итог должен совпасть
 TEST(TreeDictionary, RandomOperationsMatchStdMap) {
     std::mt19937 random(7);

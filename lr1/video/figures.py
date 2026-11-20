@@ -87,26 +87,6 @@ def traversal_fig(tree, order, color=ORANGE):
     return draw
 
 
-def thread_fig(tree, order, note=None):
-    seq = keys_in(tree, order)
-
-    def draw(img, box, p):
-        x0, y0, x1, y1 = box
-        inner = (x0, y0 + 10, x1, y1 - (70 if note else 10))
-        positions = draw_tree(img, tree, inner, highlight={seq[0]: GREEN})
-        d = ImageDraw.Draw(img)
-        shown = int(round(p * (len(seq) - 1)))
-        for a, b in list(zip(seq, seq[1:]))[:shown]:
-            pa, pb = positions[a], positions[b]
-            curved_arrow(d, pa, pb, ORANGE, bend=0.25, width=4, head=18)
-        # Узлы поверх нитей, чтобы подписи читались
-        draw_tree(img, tree, inner, highlight={seq[0]: GREEN}, positions=positions,
-                  edges=[])
-        if note:
-            caption(img, box, note)
-    return draw
-
-
 def code_fig(code, title=None, size=27):
     def draw(img, box, p):
         draw_code(img, box, code, size=size, title=title)
