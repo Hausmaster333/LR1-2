@@ -38,6 +38,7 @@ namespace {
         BenchmarkPanel benchmarks;
 
         void draw() {
+            benchmarks.update();
             const ImGuiViewport* viewport = ImGui::GetMainViewport();
             ImGui::SetNextWindowPos(viewport->WorkPos);
             ImGui::SetNextWindowSize(viewport->WorkSize);

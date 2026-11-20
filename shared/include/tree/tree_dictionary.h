@@ -5,14 +5,10 @@
 #include "tree/bst.h"
 #include <stdexcept>
 
-// Словарь на AVL-дереве: пары упорядочены по ключу, операции за O(log n),
-// перебор по возрастанию ключей. Поиск идёт по самому ключу, а пара переезжает в узел
-// перемещением, поэтому от V не нужно ничего: ни конструктора по умолчанию, ни копирования.
-// Повторный ключ в add и отсутствующий в get/remove - исключение, а не тихий пропуск.
 template <class K, class V>
 class TreeDictionary : public IDictionary<K, V> {
     private:
-        mutable BinarySearchTree<K, V> tree; // В узле лежит KeyValue<K, V>
+        mutable BinarySearchTree<K, V> tree;
     public:
         int get_count() const override { return tree.get_count(); }
         bool contains_key(const K& key) const override { return tree.contains_key(key); }

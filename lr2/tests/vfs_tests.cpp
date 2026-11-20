@@ -3,7 +3,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
-#include <vector>
+#include "core/array_sequence.h"
 
 namespace fs = std::filesystem;
 
@@ -34,8 +34,8 @@ class VfsTest : public ::testing::Test {
         std::string real(const std::string& name) const { return (real_dir / name).u8string(); }
 
         // Имена детей каталога в том порядке, в котором их отдаёт list()
-        std::vector<std::string> names(const std::string& path) const {
-            std::vector<std::string> result;
+        ArraySequence<std::string> names(const std::string& path) const {
+            ArraySequence<std::string> result;
             DynamicArray<ShrdPtr<const FsNode>> children = vfs.list(path);
             for (int index = 0; index < children.get_size(); index++) {
                 result.push_back(children.get(index)->get_name());
@@ -101,10 +101,10 @@ TEST_F(VfsTest, ListsDirectoriesFirstThenAlphabetically) {
     vfs.make_directory("/zeta");
     vfs.attach_file(real("a.txt"), "/");
     vfs.make_directory("/alpha");
-    EXPECT_EQ(names("/"), (std::vector<std::string>{"alpha", "zeta", "a.txt", "b.log"}));
+    EXPECT_EQ(names("/"), (ArraySequence<std::string>{"alpha", "zeta", "a.txt", "b.log"}));
     vfs.attach_file(real("data/c.txt"), "/");
     vfs.remove("/b.log");
-    EXPECT_EQ(names("/"), (std::vector<std::string>{"alpha", "zeta", "a.txt", "c.txt"}));
+    EXPECT_EQ(names("/"), (ArraySequence<std::string>{"alpha", "zeta", "a.txt", "c.txt"}));
 }
 
 TEST_F(VfsTest, Rename) {
@@ -138,8 +138,8 @@ TEST_F(VfsTest, InvalidMovesKeepState) {
     EXPECT_THROW(vfs.move("/", "/a"), std::invalid_argument);     // Корень не двигается
     EXPECT_THROW(vfs.rename("/", "root"), std::invalid_argument);
 
-    EXPECT_EQ(names("/"), (std::vector<std::string>{"a", "b"}));
-    EXPECT_EQ(names("/a"), (std::vector<std::string>{"b"}));
+    EXPECT_EQ(names("/"), (ArraySequence<std::string>{"a", "b"}));
+    EXPECT_EQ(names("/a"), (ArraySequence<std::string>{"b"}));
 }
 
 TEST_F(VfsTest, RemoveFileAndDirectoryRecursively) {
@@ -188,15 +188,15 @@ TEST_F(VfsTest, RealFilesAreNeverTouched) {
 
 TEST_F(VfsTest, ImportDirectory) {
     vfs.import_directory(real("data"), "/");
-    EXPECT_EQ(names("/data"), (std::vector<std::string>{"inner", "c.txt"}));
-    EXPECT_EQ(names("/data/inner"), (std::vector<std::string>{"d.txt"}));
+    EXPECT_EQ(names("/data"), (ArraySequence<std::string>{"inner", "c.txt"}));
+    EXPECT_EQ(names("/data/inner"), (ArraySequence<std::string>{"d.txt"}));
 }
 
 TEST_F(VfsTest, ImportDirectoryErrors) {
     vfs.import_directory(real("data"), "/");
     EXPECT_THROW(vfs.import_directory(real("data"), "/"), std::invalid_argument);  // Имя занято
     EXPECT_THROW(vfs.import_directory(real("a.txt"), "/"), std::invalid_argument); // Не папка
-    EXPECT_EQ(names("/"), (std::vector<std::string>{"data"}));
+    EXPECT_EQ(names("/"), (ArraySequence<std::string>{"data"}));
 }
 
 TEST_F(VfsTest, FileDeletedOutsideIsUnavailable) {
@@ -231,5 +231,29 @@ TEST_F(VfsTest, SubdirectoryFlagFollowsOperations) {
 
     vfs.remove("/c");
     EXPECT_FALSE(root.has_subdirectories());
-    EXPECT_EQ(names("/"), (std::vector<std::string>{"generated.txt"}));
+    EXPECT_EQ(names("/"), (ArraySequence<std::string>{"generated.txt"}));
+}
+
+TEST(VirtualDisk, AttachAndImportWithoutRealFiles) {
+    class Reader : public IFileSystemReader {
+        public:
+            UnqPtr<IContentSource> open_file(const fs::path& path) const override {
+                if (path.filename() != "note.txt") throw std::invalid_argument("missing file");
+                return UnqPtr<GeneratedSource>::make();
+            }
+            ArraySequence<DiskEntry> list_directory(const fs::path& path) const override {
+                if (path == "docs") return {{path / "sub", true}};
+                if (path == fs::path("docs") / "sub") return {{path / "note.txt", false}};
+                throw std::invalid_argument("missing directory");
+            }
+    } reader;
+
+    VirtualFileSystem vfs(reader);
+    vfs.attach_file("note.txt", "/", "copy.txt");
+    vfs.import_directory("docs", "/");
+    EXPECT_TRUE(vfs.exists("/docs/sub/note.txt"));
+    EXPECT_TRUE(vfs.exists("/copy.txt"));
+    EXPECT_EQ(vfs.find_files(SearchField::Extension, "txt", SearchMethod::Index).get_size(), 2);
+    EXPECT_THROW(vfs.attach_file("missing.txt", "/"), std::invalid_argument);
+    EXPECT_FALSE(vfs.exists("/missing.txt"));
 }

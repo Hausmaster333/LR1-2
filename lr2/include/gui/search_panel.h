@@ -25,7 +25,7 @@ class SearchPanel {
             double total = 0;
             int runs = 0;
             while (total < 20.0 && runs < 1000) {
-                total += bench::time_ms([&] { found = vfs.find_files(search_field, query, method); });
+                total += time_ms([&] { found = vfs.find_files(search_field, query, method); });
                 runs++;
             }
             return total / runs;

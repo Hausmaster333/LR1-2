@@ -5,14 +5,14 @@
 #include <fstream>
 #include <random>
 #include <string>
-#include <vector>
+#include "core/array_sequence.h"
 
 namespace fs = std::filesystem;
 
 namespace {
     // Пути найденных файлов, отсортированные: порядок результатов не гарантирован
-    std::vector<std::string> paths(const DynamicArray<ShrdPtr<const File>>& files) {
-        std::vector<std::string> result;
+    ArraySequence<std::string> paths(const DynamicArray<ShrdPtr<const File>>& files) {
+        ArraySequence<std::string> result;
         for (int index = 0; index < files.get_size(); index++) {
             result.push_back(files.get(index)->get_path());
         }
@@ -22,7 +22,7 @@ namespace {
 
     // Все каталоги ФС, начиная с корня
     void collect_directories(const VirtualFileSystem& vfs, const std::string& path,
-                             std::vector<std::string>& out) {
+                             ArraySequence<std::string>& out) {
         out.push_back(path);
         DynamicArray<ShrdPtr<const FsNode>> children = vfs.list(path);
         for (int index = 0; index < children.get_size(); index++) {
@@ -57,9 +57,9 @@ class SearchTest : public ::testing::Test {
             vfs.attach_file((real_dir / "one.txt").u8string(), directory, name);
         }
 
-        std::vector<std::string> find(SearchField field, const std::string& value) {
-            std::vector<std::string> by_scan = paths(vfs.find_files(field, value, SearchMethod::FullScan));
-            std::vector<std::string> by_index = paths(vfs.find_files(field, value, SearchMethod::Index));
+        ArraySequence<std::string> find(SearchField field, const std::string& value) {
+            ArraySequence<std::string> by_scan = paths(vfs.find_files(field, value, SearchMethod::FullScan));
+            ArraySequence<std::string> by_index = paths(vfs.find_files(field, value, SearchMethod::Index));
             EXPECT_EQ(by_scan, by_index) << value;
             return by_index;
         }
@@ -73,7 +73,7 @@ TEST_F(SearchTest, ByNameFindsFilesInAllDirectories) {
     attach("/a", "other.txt");
 
     EXPECT_EQ(find(SearchField::Name, "report.txt"),
-              (std::vector<std::string>{"/a/b/report.txt", "/report.txt"}));
+              (ArraySequence<std::string>{"/a/b/report.txt", "/report.txt"}));
     EXPECT_TRUE(find(SearchField::Name, "Report.txt").empty()); // Имя - с учётом регистра
     EXPECT_TRUE(find(SearchField::Name, "missing").empty());
 }
@@ -83,7 +83,7 @@ TEST_F(SearchTest, ByExtensionIgnoresCaseAndDot) {
     attach("/", "b.txt");
     attach("/", "c.log");
     for (const char* query : {"txt", ".txt", "TXT"}) {
-        EXPECT_EQ(find(SearchField::Extension, query), (std::vector<std::string>{"/a.TXT", "/b.txt"}));
+        EXPECT_EQ(find(SearchField::Extension, query), (ArraySequence<std::string>{"/a.TXT", "/b.txt"}));
     }
 }
 
@@ -92,12 +92,12 @@ TEST_F(SearchTest, EmptyExtensionFindsFilesWithoutIt) {
     attach("/", "b.txt");
     attach("/", "noext");
     attach("/", ".hidden");
-    EXPECT_EQ(find(SearchField::Extension, ""), (std::vector<std::string>{"/.hidden", "/noext"}));
+    EXPECT_EQ(find(SearchField::Extension, ""), (ArraySequence<std::string>{"/.hidden", "/noext"}));
 }
 
 TEST_F(SearchTest, IndexSeesImportedFiles) {
     vfs.import_directory((real_dir / "data").u8string(), "/");
-    EXPECT_EQ(find(SearchField::Extension, "log"), (std::vector<std::string>{"/data/inner/three.LOG"}));
+    EXPECT_EQ(find(SearchField::Extension, "log"), (ArraySequence<std::string>{"/data/inner/three.LOG"}));
 }
 
 TEST_F(SearchTest, IndexFollowsRename) {
@@ -112,7 +112,7 @@ TEST_F(SearchTest, IndexFollowsMove) {
     vfs.import_directory((real_dir / "data").u8string(), "/");
     vfs.make_directory("/moved");
     vfs.move("/data/inner", "/moved");
-    EXPECT_EQ(find(SearchField::Name, "three.LOG"), (std::vector<std::string>{"/moved/inner/three.LOG"}));
+    EXPECT_EQ(find(SearchField::Name, "three.LOG"), (ArraySequence<std::string>{"/moved/inner/three.LOG"}));
 }
 
 TEST_F(SearchTest, IndexFollowsRemove) {
@@ -130,15 +130,15 @@ TEST_F(SearchTest, IndexMatchesFullScanAfterRandomOperations) {
     auto pick = [&random](int size) { return static_cast<int>(random() % size); };
 
     for (int step = 0; step < 400; step++) {
-        std::vector<std::string> directories;
+        ArraySequence<std::string> directories;
         collect_directories(vfs, "/", directories);
         std::string directory = directories[pick(directories.size())];
         std::string name = names[pick(5)];
 
         // Все файлы ФС: у каждого из них расширение txt, log или пустое
-        std::vector<std::string> files = paths(vfs.find_files(SearchField::Extension, "txt", SearchMethod::FullScan));
-        std::vector<std::string> logs = paths(vfs.find_files(SearchField::Extension, "log", SearchMethod::FullScan));
-        files.insert(files.end(), logs.begin(), logs.end());
+        ArraySequence<std::string> files = paths(vfs.find_files(SearchField::Extension, "txt", SearchMethod::FullScan));
+        ArraySequence<std::string> logs = paths(vfs.find_files(SearchField::Extension, "log", SearchMethod::FullScan));
+        for (const auto& path : logs) files.push_back(path);
 
         try {
             switch (pick(6)) {

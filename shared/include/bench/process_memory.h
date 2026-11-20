@@ -5,7 +5,7 @@
 
 #ifdef _WIN32
     #ifndef NOMINMAX
-        #define NOMINMAX // Иначе макросы min/max из windows.h ломают std::min/std::max
+        #define NOMINMAX
     #endif
     #include <windows.h>
     #include <psapi.h>
@@ -14,7 +14,6 @@
     #include <unistd.h>
 #endif
 
-// Физическая память процесса (working set / RSS) в байтах, 0 при ошибке
 inline std::size_t get_process_memory() {
 #ifdef _WIN32
     PROCESS_MEMORY_COUNTERS counters;

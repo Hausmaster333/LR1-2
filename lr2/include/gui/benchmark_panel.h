@@ -4,71 +4,24 @@
 #include "bench/vfs_benchmark.h"
 #include "imgui.h"
 #include "implot.h"
-#include <atomic>
 #include <cmath>
-#include <mutex>
 #include <string>
-#include <thread>
-#include <vector>
+#include "core/array_sequence.h"
 
-// Замеры идут в фоновом потоке, чтобы окно не зависало; результаты под mutex
 class BenchmarkPanel {
     private:
-        bench::Params params;
+        BackgroundBenchmark<Params, SizeResult> run;
         int max_exponent = 6;
-
-        std::thread worker;
-        std::atomic<bool> running{false};
-        std::atomic<bool> cancel{false};
-        std::mutex mutex;
-        std::vector<bench::SizeResult> results;
-        std::string status = "Готово к запуску";
 
         char csv_path[256] = "lr2/benchmarks/results.csv";
         bool per_file = false; // Время построения на один файл вместо общего
 
-        void set_status(const std::string& text) {
-            std::lock_guard<std::mutex> lock(mutex);
-            status = text;
-        }
-
-        void start() {
-            if (running) return;
-            if (worker.joinable()) worker.join();
-
-            params.max_size = 1;
-            for (int step = 0; step < max_exponent; step++) params.max_size *= 10;
-            {
-                std::lock_guard<std::mutex> lock(mutex);
-                results.clear();
-            }
-            cancel = false;
-            running = true;
-
-            bench::Params run_params = params;
-            worker = std::thread([this, run_params] {
-                try {
-                    for (long long size : bench::make_sizes(run_params)) {
-                        if (cancel) break;
-                        set_status("Замер n = " + std::to_string(size) + " ...");
-                        bench::SizeResult result = bench::measure(size, run_params, &cancel);
-                        std::lock_guard<std::mutex> lock(mutex);
-                        results.push_back(result);
-                    }
-                    set_status(cancel ? "Остановлено" : "Готово");
-                } catch (const std::exception& error) {
-                    set_status(std::string("Ошибка: ") + error.what());
-                }
-                running = false;
-            });
-        }
-
         // Одна линия графика; точки без замера (NaN) пропускаются
-        static void plot_series(const char* label, const std::vector<bench::SizeResult>& data,
-                                double (*value_of)(const bench::SizeResult&), bool per_file) {
-            std::vector<double> xs;
-            std::vector<double> ys;
-            for (const bench::SizeResult& result : data) {
+        static void plot_series(const char* label, const ArraySequence<SizeResult>& data,
+                                double (*value_of)(const SizeResult&), bool per_file) {
+            ArraySequence<double> xs;
+            ArraySequence<double> ys;
+            for (const SizeResult& result : data) {
                 double value = value_of(result);
                 if (std::isnan(value)) continue;
                 xs.push_back(static_cast<double>(result.size));
@@ -82,7 +35,7 @@ class BenchmarkPanel {
         }
 
         void draw_controls() {
-            bool locked = running;
+            bool locked = run.running();
             ImGui::BeginDisabled(locked);
             ImGui::SetNextItemWidth(200);
             ImGui::SliderInt("max n = 10^k", &max_exponent, 3, 7);
@@ -94,36 +47,34 @@ class BenchmarkPanel {
                                    "и «Загрузить CSV».");
             }
 
-            if (!locked && ImGui::Button("Запустить")) start();
-            if (locked && ImGui::Button("Остановить")) cancel = true;
-            ImGui::SameLine();
-            {
-                std::lock_guard<std::mutex> lock(mutex);
-                ImGui::Text("%s", status.c_str());
+            if (!locked && ImGui::Button("Запустить")) {
+                run.params.max_size = 1;
+                for (int i = 0; i < max_exponent; ++i) run.params.max_size *= 10;
+                run.start();
             }
+            if (locked && ImGui::Button("Остановить")) run.stop();
+            ImGui::SameLine();
+            ImGui::Text("%s", run.status.c_str());
 
             ImGui::SetNextItemWidth(300);
             ImGui::InputText("##csv", csv_path, sizeof(csv_path));
             ImGui::SameLine();
-            ImGui::BeginDisabled(locked);
+            ImGui::BeginDisabled(run.running());
             if (ImGui::Button("Сохранить CSV")) {
                 try {
-                    std::lock_guard<std::mutex> lock(mutex);
-                    bench::save_csv(csv_path, results);
-                    status = std::string("Сохранено: ") + csv_path;
+                    save_csv(csv_path, run.results);
+                    run.status = std::string("Сохранено: ") + csv_path;
                 } catch (const std::exception& error) {
-                    status = std::string("Ошибка: ") + error.what();
+                    run.status = std::string("Ошибка: ") + error.what();
                 }
             }
             ImGui::SameLine();
             if (ImGui::Button("Загрузить CSV")) {
                 try {
-                    std::vector<bench::SizeResult> loaded = bench::load_csv(csv_path);
-                    std::lock_guard<std::mutex> lock(mutex);
-                    results = std::move(loaded);
-                    status = std::string("Загружено: ") + csv_path;
+                    run.results = load_csv(csv_path);
+                    run.status = std::string("Загружено: ") + csv_path;
                 } catch (const std::exception& error) {
-                    set_status(std::string("Ошибка: ") + error.what());
+                    run.status = std::string("Ошибка: ") + error.what();
                 }
             }
             ImGui::EndDisabled();
@@ -131,15 +82,15 @@ class BenchmarkPanel {
             ImGui::Checkbox("построение: нс на один файл", &per_file);
         }
 
-        void draw_plots(const std::vector<bench::SizeResult>& data, float height) {
+        void draw_plots(const ArraySequence<SizeResult>& data, float height) {
             float width = ImGui::GetContentRegionAvail().x * 0.5f - ImGui::GetStyle().ItemSpacing.x;
             if (ImPlot::BeginPlot("Один поиск по имени", ImVec2(width, height))) {
                 ImPlot::SetupAxes("файлов", "мс");
                 ImPlot::SetupAxisScale(ImAxis_X1, ImPlotScale_Log10);
                 ImPlot::SetupAxisScale(ImAxis_Y1, ImPlotScale_Log10);
                 ImPlot::SetupLegend(ImPlotLocation_NorthWest);
-                plot_series("полный обход, O(n)", data, [](const bench::SizeResult& r) { return r.scan_ms; }, false);
-                plot_series("индекс, O(log n)", data, [](const bench::SizeResult& r) { return r.index_ms; }, false);
+                plot_series("полный обход, O(n)", data, [](const SizeResult& r) { return r.scan_ms; }, false);
+                plot_series("индекс, O(log n)", data, [](const SizeResult& r) { return r.index_ms; }, false);
                 ImPlot::EndPlot();
             }
             ImGui::SameLine();
@@ -149,11 +100,11 @@ class BenchmarkPanel {
                 if (!per_file) ImPlot::SetupAxisScale(ImAxis_Y1, ImPlotScale_Log10);
                 ImPlot::SetupLegend(ImPlotLocation_NorthWest);
                 plot_series("имена по возрастанию", data,
-                            [](const bench::SizeResult& r) { return r.build_ms[bench::ASCENDING]; }, per_file);
+                            [](const SizeResult& r) { return r.build_ms[ASCENDING]; }, per_file);
                 plot_series("по убыванию", data,
-                            [](const bench::SizeResult& r) { return r.build_ms[bench::DESCENDING]; }, per_file);
+                            [](const SizeResult& r) { return r.build_ms[DESCENDING]; }, per_file);
                 plot_series("вразнобой", data,
-                            [](const bench::SizeResult& r) { return r.build_ms[bench::RANDOM]; }, per_file);
+                            [](const SizeResult& r) { return r.build_ms[RANDOM]; }, per_file);
                 ImPlot::EndPlot();
             }
         }
@@ -167,7 +118,7 @@ class BenchmarkPanel {
             }
         }
 
-        static void draw_table(const std::vector<bench::SizeResult>& data) {
+        static void draw_table(const ArraySequence<SizeResult>& data) {
             ImGuiTableFlags flags = ImGuiTableFlags_Borders | ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY;
             if (!ImGui::BeginTable("##results", 7, flags)) return;
             ImGui::TableSetupScrollFreeze(0, 1);
@@ -176,7 +127,7 @@ class BenchmarkPanel {
                 ImGui::TableSetupColumn(title);
             }
             ImGui::TableHeadersRow();
-            for (const bench::SizeResult& result : data) {
+            for (const SizeResult& result : data) {
                 ImGui::TableNextRow();
                 ImGui::TableNextColumn();
                 ImGui::Text("%lld", result.size);
@@ -188,22 +139,14 @@ class BenchmarkPanel {
             ImGui::EndTable();
         }
     public:
-        ~BenchmarkPanel() {
-            cancel = true;
-            if (worker.joinable()) worker.join();
-        }
+        void update() { run.update(); }
 
         void draw() {
             draw_controls();
 
-            std::vector<bench::SizeResult> data;
-            {
-                std::lock_guard<std::mutex> lock(mutex);
-                data = results;
-            }
             float table_height = 190.0f * ImGui::GetStyle().FontScaleDpi;
-            draw_plots(data, ImGui::GetContentRegionAvail().y - table_height);
-            draw_table(data);
+            draw_plots(run.results, ImGui::GetContentRegionAvail().y - table_height);
+            draw_table(run.results);
         }
 };
 

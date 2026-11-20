@@ -6,7 +6,7 @@
 #include "imgui.h"
 #include <cstdio>
 #include <string>
-#include <vector>
+#include "core/array_sequence.h"
 
 class ITreePanel {
     public:
@@ -16,7 +16,7 @@ class ITreePanel {
 };
 
 namespace panel_detail {
-    const int MAX_DRAWN_NODES = 5000; // Больше - неразборчиво и медленно рисовать каждый кадр
+    const int MAX_DRAWN_NODES = 5000;
     const int MAX_LISTED_VALUES = 300;
     const std::size_t MIN_STRING_BUFFER = 64 * 1024;
 
@@ -29,11 +29,11 @@ namespace panel_detail {
     }
 
     template <class Preset>
-    bool preset_combo(const char* label, int& index, const std::vector<Preset>& presets) {
+    bool preset_combo(const char* label, int& index, const ArraySequence<Preset>& presets) {
         if (presets.empty()) return false;
         return ImGui::Combo(label, &index, [](void* data, int idx) {
-            return static_cast<const std::vector<Preset>*>(data)->at(idx).name;
-        }, const_cast<std::vector<Preset>*>(&presets), static_cast<int>(presets.size()));
+            return static_cast<const ArraySequence<Preset>*>(data)->at(idx).name;
+        }, const_cast<ArraySequence<Preset>*>(&presets), static_cast<int>(presets.size()));
     }
 }
 
@@ -56,7 +56,7 @@ class TreePanel : public ITreePanel {
         BinarySearchTree<T> second; // Результат map/where/поддерева или дерево для поиска вхождения
         std::string second_title = "пока пусто";
         Option<T> highlighted;
-        std::vector<LogEntry> log;
+        ArraySequence<LogEntry> log;
         bool scroll_log = false;
 
         char value_input[256] = "";
@@ -71,21 +71,21 @@ class TreePanel : public ITreePanel {
         int threaded_index = gui_detail::IN_ORDER_INDEX; // Каким обходом дерево прошито
         bool show_threads = true;
 
-        std::vector<MapPreset<T>> map_presets = GuiValue<T>::map_presets();
-        std::vector<WherePreset<T>> where_presets = GuiValue<T>::where_presets();
-        std::vector<ReducePreset<T>> reduce_presets = GuiValue<T>::reduce_presets();
+        ArraySequence<MapPreset<T>> map_presets = GuiValue<T>::map_presets();
+        ArraySequence<WherePreset<T>> where_presets = GuiValue<T>::where_presets();
+        ArraySequence<ReducePreset<T>> reduce_presets = GuiValue<T>::reduce_presets();
         int map_index = 0;
         int where_index = 0;
         int reduce_index = 0;
         std::string reduce_text;
 
         char format_input[64] = "{К}(Л)[П]";
-        std::vector<char> string_buffer = std::vector<char>(panel_detail::MIN_STRING_BUFFER, '\0');
+        std::string string_buffer = std::string(panel_detail::MIN_STRING_BUFFER, '\0');
         float zoom = 1.0f;
 
         void add_log(const std::string& text, bool error = false) {
             log.push_back({text, error});
-            if (log.size() > 300) log.erase(log.begin());
+            if (log.size() > 300) log.remove_first();
             scroll_log = true;
         }
 
@@ -113,8 +113,6 @@ class TreePanel : public ITreePanel {
             second_title = title;
             add_log(title + ": " + std::to_string(second.get_count()) + " элементов");
         }
-
-        // ---------- Управление ----------
 
         void draw_elements_section() {
             if (!ImGui::CollapsingHeader("Элементы", ImGuiTreeNodeFlags_DefaultOpen)) return;
@@ -182,8 +180,7 @@ class TreePanel : public ITreePanel {
                     std::mt19937 random(static_cast<unsigned>(fill_seed));
                     BinarySearchTree<T> filled;
                     long long attempts = 0;
-                    double elapsed = bench::time_ms([&] {
-                        // Повторы отбрасываются, поэтому даём запас попыток
+                    double elapsed = time_ms([&] {
                         while (filled.get_count() < fill_count && attempts < 20LL * fill_count) {
                             filled.insert(GuiValue<T>::random(random, fill_range));
                             attempts++;
@@ -223,7 +220,7 @@ class TreePanel : public ITreePanel {
             if (ImGui::Button("Обойти")) {
                 run_action("Обход", [&] {
                     traversal_text = std::string(TRAVERSAL_NAMES[order_index]) + ": ";
-                    auto iter = tree.get_enumerator(ListedTraversal(order_index));
+                    auto iter = tree.template get_enumerator<ListedTraversal>(order_index);
                     int listed = 0;
                     while (iter->move_next() && listed < MAX_LISTED_VALUES) {
                         if (listed++ > 0) traversal_text += ", ";
@@ -242,7 +239,7 @@ class TreePanel : public ITreePanel {
             ImGui::SameLine();
             if (ImGui::Button("Прошить")) {
                 run_action("Прошивка", [&] {
-                    tree.thread(ListedTraversal(thread_index));
+                    tree.template thread<ListedTraversal>(thread_index);
                     threaded_index = thread_index;
                     add_log("Дерево прошито по обходу " + std::string(TRAVERSAL_NAMES[thread_index]));
                 });
@@ -291,7 +288,7 @@ class TreePanel : public ITreePanel {
             if (ImGui::Button("reduce")) {
                 run_action("reduce", [&] {
                     const ReducePreset<T>& preset = reduce_presets.at(reduce_index);
-                    reduce_text = preset.run(tree, ListedTraversal(order_index));
+                    reduce_text = preset.run(tree, order_index);
                     add_log(std::string("reduce(") + preset.name + ", "
                             + TRAVERSAL_NAMES[order_index] + ") = " + reduce_text);
                 });
@@ -350,9 +347,6 @@ class TreePanel : public ITreePanel {
             }
         }
 
-        // ---------- Отрисовка дерева ----------
-
-        // Узел по горизонтали стоит на своей позиции по возрастанию, по вертикали - на глубине
         void draw_tree(const BinarySearchTree<T>& shown, bool is_main) {
             using namespace panel_detail;
             int count = shown.get_count();
@@ -367,7 +361,7 @@ class TreePanel : public ITreePanel {
                 return;
             }
 
-            std::vector<DrawnNode> nodes(count);
+            ArraySequence<DrawnNode> nodes(count);
             float max_label = 0.0f;
             shown.visit_nodes([&](const T& value, int depth, int index, int parent) {
                 std::string label = GuiValue<T>::label(value);
@@ -462,8 +456,6 @@ class TreePanel : public ITreePanel {
             ImGui::EndChild();
         }
 
-        // Нить - дуга от узла к следующему в прошитом обходе, изогнутая вбок от рёбер,
-        // со стрелкой в середине; первый узел обведён
         template <class Center>
         void draw_threads(const BinarySearchTree<T>& shown, Center center) {
             ImDrawList* draw = ImGui::GetWindowDrawList();

@@ -5,7 +5,7 @@
 #include <set>
 #include <string>
 #include <utility>
-#include <vector>
+#include "core/array_sequence.h"
 
 namespace {
     BinarySearchTree<int> make_tree(std::initializer_list<int> items) {
@@ -14,69 +14,107 @@ namespace {
         return tree;
     }
 
-    std::vector<int> collect(UnqPtr<IEnumerator<int>> iter) {
-        std::vector<int> result;
+    ArraySequence<int> collect(UnqPtr<IEnumerator<int>> iter) {
+        ArraySequence<int> result;
         while (iter->move_next()) result.push_back(iter->get_current());
         return result;
     }
 
-    std::vector<int> to_vector(const DynamicArray<int>& array) {
-        std::vector<int> result;
+    ArraySequence<int> to_sequence(const DynamicArray<int>& array) {
+        ArraySequence<int> result;
         for (int idx = 0; idx < array.get_size(); idx++) result.push_back(array.get(idx));
         return result;
     }
 
-    // Высота AVL-дерева из n узлов не больше 1.45 * log2(n + 2)
     bool height_is_avl(int height, int count) {
         return height <= 1.45 * std::log2(count + 2.0);
     }
 
-    // Свои стратегии обхода: дерево о них ничего не знает, видит только объект стратегии.
-    // Правая ветвь от корня до самого правого узла
-    struct RightSpine {
-        template <class Node>
-        class Walk {
-            private:
-                Node node;
-            public:
-                Walk(const Node& root, const RightSpine&) : node(root) {}
+    template <class Node>
+    class RightSpine {
+        private:
+            Node node;
+        public:
+            RightSpine(const Node& root) : node(root) {}
 
-                Node next() {
-                    Node current = node;
-                    if (node) node = node.right();
-                    return current;
-                }
-        };
-    };
-
-    struct InterruptedTraversal {
-        template <class Node>
-        struct Walk {
-            Node root;
-            Walk(const Node& root, const InterruptedTraversal&) : root(root) {}
             Node next() {
-                if (!root) throw std::runtime_error("Traversal interrupted");
-                return std::exchange(root, Node());
+                Node current = node;
+                if (node) node = node.right();
+                return current;
             }
-        };
     };
 
-    // Только листья, слева направо: стратегия собрана из готового DepthFirst
-    struct LeavesOnly {
-        template <class Node>
-        class Walk {
-            private:
-                DepthFirst::Walk<Node> walker;
-            public:
-                Walk(const Node& root, const LeavesOnly&) : walker(root, DepthFirst()) {}
+    template <class Node>
+    class MyBFS {
+        private:
+            DynamicArray<Node> queue{1};
+            int head = 0;
+            int tail = 0;
 
-                Node next() {
-                    while (Node node = walker.next()) {
-                        if (!node.left() && !node.right()) return node;
-                    }
-                    return Node();
+            void enqueue(Node node) {
+                if (!node) return;
+                
+                if (tail == queue.get_size())
+                    queue.resize(2 * tail);
+                queue.set(tail++, std::move(node));
+            }
+
+        public:
+            MyBFS(const Node& root) {
+                enqueue(root);
+            }
+
+            Node next() {
+                if (head == tail) return {};
+
+                Node current = queue.get(head);
+                queue.set(head++, Node{});
+                enqueue(current.left());
+                enqueue(current.right());
+
+                return current;
+            }
+    };
+
+    template <class Node>
+    class OnlyLeft {
+        private:
+            Node node;
+        
+        public:
+            OnlyLeft(const Node& root) : node(root) {}
+
+            Node next() {
+                Node current = node;
+                if (node)
+                    node = current.left();
+                return current;
+            }
+    };
+
+    template <class Node>
+    struct InterruptedTraversal {
+        Node root;
+        InterruptedTraversal(const Node& root) : root(root) {}
+        Node next() {
+            if (!root) throw std::runtime_error("Traversal interrupted");
+            return std::exchange(root, Node());
+        }
+    };
+
+    template <class Node>
+    class LeavesOnly {
+        private:
+            DFS<Node> walker;
+        public:
+            LeavesOnly(const Node& root) : walker(root) {}
+
+            Node next() {
+                while (Node node = walker.next()) {
+                    if (!node.left() && !node.right()) return node;
                 }
-        };
+                return Node();
+            }
     };
 }
 
@@ -109,13 +147,13 @@ TEST(BstBasic, RemoveNodeWithTwoChildren) {
     BinarySearchTree<int> tree = make_tree({5, 3, 8, 1, 4});
     EXPECT_TRUE(tree.remove(3)); // У 3 дети 1 и 4
     EXPECT_FALSE(tree.contains(3));
-    EXPECT_EQ(to_vector(tree.to_array()), (std::vector<int>{1, 4, 5, 8}));
+    EXPECT_EQ(to_sequence(tree.to_array()), (ArraySequence<int>{1, 4, 5, 8}));
 }
 
 TEST(BstBasic, RemovingRootKeepsSuccessorsRightChild) {
     auto tree = make_tree({8, 4, 14, 2, 6, 10, 16, 11});
     EXPECT_TRUE(tree.remove(8)); // На место 8 переходит 10, его прежнее место занимает 11
-    EXPECT_EQ(to_vector(tree.to_array()), (std::vector<int>{2, 4, 6, 10, 11, 14, 16}));
+    EXPECT_EQ(to_sequence(tree.to_array()), (ArraySequence<int>{2, 4, 6, 10, 11, 14, 16}));
     EXPECT_EQ(tree.index_of(11), 4);
 }
 
@@ -124,7 +162,7 @@ TEST(BstBasic, RemoveLeafAndNodeWithOneChild) {
     EXPECT_TRUE(tree.remove(4)); // Лист
     EXPECT_TRUE(tree.remove(1));
     EXPECT_TRUE(tree.remove(2)); // Остался один ребёнок 3
-    EXPECT_EQ(to_vector(tree.to_array()), (std::vector<int>{3}));
+    EXPECT_EQ(to_sequence(tree.to_array()), (ArraySequence<int>{3}));
     EXPECT_TRUE(tree.remove(3));
     EXPECT_EQ(tree.get_count(), 0);
 }
@@ -201,7 +239,10 @@ TEST(BstBalance, RandomOperationsMatchStdSet) {
 
     ASSERT_EQ(tree.get_count(), static_cast<int>(reference.size()));
     EXPECT_TRUE(height_is_avl(tree.get_height(), tree.get_count()));
-    EXPECT_EQ(to_vector(tree.to_array()), std::vector<int>(reference.begin(), reference.end()));
+    const auto ordered = tree.to_array();
+    ASSERT_EQ(ordered.get_size(), static_cast<int>(reference.size()));
+    int index = 0;
+    for (int value : reference) EXPECT_EQ(ordered.get(index++), value);
 }
 
 // ---------- Обходы и перечислители ----------
@@ -213,7 +254,7 @@ TEST(BstBalance, RandomOperationsMatchStdSet) {
 TEST(BstOrders, AllSixOrdersAgree) {
     struct Case {
         const char* order;
-        std::vector<int> expected;
+        ArraySequence<int> expected;
     };
     const Case cases[] = {
         {"КЛП", {4, 2, 1, 3, 6, 5, 7}},
@@ -226,11 +267,11 @@ TEST(BstOrders, AllSixOrdersAgree) {
     for (const Case& test : cases) {
         BinarySearchTree<int> tree = make_tree({4, 2, 6, 1, 3, 5, 7});
 
-        DepthFirst traversal(test.order);
+        std::string traversal(test.order);
 
-        EXPECT_EQ(collect(tree.get_enumerator(traversal)), test.expected) << test.order;
-        EXPECT_EQ(to_vector(tree.to_array(traversal)), test.expected) << test.order;
-        tree.thread(traversal);
+        EXPECT_EQ(collect(tree.get_enumerator<DFS>(traversal)), test.expected) << test.order;
+        EXPECT_EQ(to_sequence(tree.to_array<DFS>(traversal)), test.expected) << test.order;
+        tree.thread<DFS>(traversal);
         EXPECT_EQ(collect(tree.get_threaded_enumerator()), test.expected) << test.order;
     }
 }
@@ -241,25 +282,27 @@ TEST(BstOrders, AllSixOrdersAgree) {
 //         4
 //      2     6
 //       3   5 7
-TEST(BstTraversal, LevelOrder) {
+TEST(BstTraversal, BFS) {
     BinarySearchTree<int> tree = make_tree({4, 2, 6, 1, 3, 5, 7});
-    EXPECT_EQ(collect(tree.get_enumerator(LevelOrder())), (std::vector<int>{4, 2, 6, 1, 3, 5, 7}));
+    EXPECT_EQ(collect(tree.get_enumerator<BFS>()), (ArraySequence<int>{4, 2, 6, 1, 3, 5, 7}));
     tree.remove(1);
-    EXPECT_EQ(collect(tree.get_enumerator(LevelOrder())), (std::vector<int>{4, 2, 6, 3, 5, 7}));
-    EXPECT_TRUE(collect(BinarySearchTree<int>().get_enumerator(LevelOrder())).empty());
+    EXPECT_EQ(collect(tree.get_enumerator<BFS>()), (ArraySequence<int>{4, 2, 6, 3, 5, 7}));
+    EXPECT_TRUE(collect(BinarySearchTree<int>().get_enumerator<BFS>()).empty());
 }
 
 // Стратегии, написанные снаружи дерева, работают так же, как встроенные
 TEST(BstTraversal, CustomStrategies) {
     BinarySearchTree<int> tree = make_tree({4, 2, 6, 1, 3, 5, 7});
-    EXPECT_EQ(collect(tree.get_enumerator(RightSpine())), (std::vector<int>{4, 6, 7}));
-    EXPECT_EQ(collect(tree.get_enumerator(LeavesOnly())), (std::vector<int>{1, 3, 5, 7}));
+    EXPECT_EQ(collect(tree.get_enumerator<RightSpine>()), (ArraySequence<int>{4, 6, 7}));
+    EXPECT_EQ(collect(tree.get_enumerator<OnlyLeft>()), (ArraySequence<int>{4, 2, 1}));
+    EXPECT_EQ(collect(tree.get_enumerator<MyBFS>()), collect(tree.get_enumerator<BFS>()));
+    EXPECT_EQ(collect(tree.get_enumerator<LeavesOnly>()), (ArraySequence<int>{1, 3, 5, 7}));
 }
 
 // reset() возвращает любую стратегию в начало: перечислитель хранит её начальную копию
 TEST(BstTraversal, CustomStrategyResets) {
     BinarySearchTree<int> tree = make_tree({4, 2, 6});
-    auto iter = tree.get_enumerator(LevelOrder());
+    auto iter = tree.get_enumerator<BFS>();
     while (iter->move_next()) {}
     iter->reset();
     ASSERT_TRUE(iter->move_next());
@@ -269,7 +312,7 @@ TEST(BstTraversal, CustomStrategyResets) {
 // Защита от изменения дерева общая для всех стратегий, своя её не обходит
 TEST(BstTraversal, CustomStrategyInvalidatedByInsert) {
     BinarySearchTree<int> tree = make_tree({4, 2, 6});
-    auto iter = tree.get_enumerator(RightSpine());
+    auto iter = tree.get_enumerator<RightSpine>();
     ASSERT_TRUE(iter->move_next());
     tree.insert(8);
     EXPECT_THROW(iter->move_next(), std::logic_error);
@@ -331,7 +374,7 @@ TEST(BstEnumerator, MoveKeepsEnumeratorValid) {
     BinarySearchTree<int> tree = make_tree({2, 1, 3});
     auto iter = tree.get_enumerator();
     BinarySearchTree<int> moved = std::move(tree);
-    EXPECT_EQ(collect(std::move(iter)), (std::vector<int>{1, 2, 3}));
+    EXPECT_EQ(collect(std::move(iter)), (ArraySequence<int>{1, 2, 3}));
 }
 
 TEST(BstEnumerator, MovedFromTreeIsEmptyAndUsable) {
@@ -339,7 +382,7 @@ TEST(BstEnumerator, MovedFromTreeIsEmptyAndUsable) {
     BinarySearchTree<int> moved = std::move(tree);
     EXPECT_FALSE(tree.get_enumerator()->move_next());
     tree.insert(5);
-    EXPECT_EQ(collect(tree.get_enumerator()), (std::vector<int>{5}));
+    EXPECT_EQ(collect(tree.get_enumerator()), (ArraySequence<int>{5}));
 }
 
 TEST(TraversalOrderParse, LatinAliases) {
@@ -352,13 +395,13 @@ TEST(TraversalOrderParse, BadOrdersThrow) {
     EXPECT_THROW(TraversalOrder::from_string("КЛ"), std::invalid_argument);   // Нет П
     EXPECT_THROW(TraversalOrder::from_string("КЛПК"), std::invalid_argument); // Лишняя буква
     EXPECT_THROW(TraversalOrder::from_string("ККП"), std::invalid_argument);  // К дважды
-    EXPECT_THROW(DepthFirst("КЛ"), std::invalid_argument); // Стратегия проверяет порядок так же
+    EXPECT_THROW(BinarySearchTree<int>().get_enumerator<DFS>("КЛ"), std::invalid_argument); // Стратегия проверяет порядок так же
 }
 
 TEST(DynamicArrayEnumerator, WalksArray) {
     int items[] = {1, 2, 3};
     DynamicArray<int> array(items, 3);
-    EXPECT_EQ(collect(array.get_enumerator()), (std::vector<int>{1, 2, 3}));
+    EXPECT_EQ(collect(array.get_enumerator()), (ArraySequence<int>{1, 2, 3}));
     EXPECT_TRUE(collect(DynamicArray<int>().get_enumerator()).empty());
 }
 
@@ -411,42 +454,42 @@ TEST(BstThread, ThreadedEnumeratorNeedsThread) {
     BinarySearchTree<int> tree = make_tree({2, 1, 3});
     EXPECT_THROW(tree.get_threaded_enumerator(), std::logic_error);
 
-    tree.thread(DepthFirst("ПКЛ"));
+    tree.thread<DFS>("ПКЛ");
     EXPECT_TRUE(tree.is_threaded());
-    EXPECT_EQ(collect(tree.get_threaded_enumerator()), (std::vector<int>{3, 2, 1}));
+    EXPECT_EQ(collect(tree.get_threaded_enumerator()), (ArraySequence<int>{3, 2, 1}));
 }
 
 // Прошивка - свойство дерева: после вставок и удалений нити идут тем же обходом по новому дереву
 TEST(BstThread, ChangesKeepThreadUpToDate) {
-    DepthFirst order("КЛП");
+    std::string order("КЛП");
     BinarySearchTree<int> tree = make_tree({2, 1, 3});
-    tree.thread(order);
+    tree.thread<DFS>(order);
 
     for (int value : {4, 5, 6, 0}) tree.insert(value); // С поворотами: корень меняется
     EXPECT_TRUE(tree.is_threaded());
-    EXPECT_EQ(collect(tree.get_threaded_enumerator()), collect(tree.get_enumerator(order)));
+    EXPECT_EQ(collect(tree.get_threaded_enumerator()), collect(tree.get_enumerator<DFS>(order)));
 
     tree.remove(4);
     tree.remove(0);
-    EXPECT_EQ(collect(tree.get_threaded_enumerator()), collect(tree.get_enumerator(order)));
+    EXPECT_EQ(collect(tree.get_threaded_enumerator()), collect(tree.get_enumerator<DFS>(order)));
 
     tree.clear();
     EXPECT_TRUE(tree.is_threaded());
     EXPECT_TRUE(collect(tree.get_threaded_enumerator()).empty());
     tree.insert(7);
-    EXPECT_EQ(collect(tree.get_threaded_enumerator()), (std::vector<int>{7}));
+    EXPECT_EQ(collect(tree.get_threaded_enumerator()), (ArraySequence<int>{7}));
 }
 
 // Прошить можно любой стратегией, и обновляется прошивка тоже по ней
 TEST(BstThread, AnyStrategy) {
     BinarySearchTree<int> tree = make_tree({4, 2, 6, 1, 3, 5, 7});
-    tree.thread(LevelOrder());
-    EXPECT_EQ(collect(tree.get_threaded_enumerator()), (std::vector<int>{4, 2, 6, 1, 3, 5, 7}));
+    tree.thread<BFS>();
+    EXPECT_EQ(collect(tree.get_threaded_enumerator()), (ArraySequence<int>{4, 2, 6, 1, 3, 5, 7}));
     tree.remove(4);
-    EXPECT_EQ(collect(tree.get_threaded_enumerator()), collect(tree.get_enumerator(LevelOrder())));
+    EXPECT_EQ(collect(tree.get_threaded_enumerator()), collect(tree.get_enumerator<BFS>()));
 
-    tree.thread(RightSpine()); // Узлы вне правой ветви нитей не получают
-    EXPECT_EQ(collect(tree.get_threaded_enumerator()), collect(tree.get_enumerator(RightSpine())));
+    tree.thread<RightSpine>(); // Узлы вне правой ветви нитей не получают
+    EXPECT_EQ(collect(tree.get_threaded_enumerator()), collect(tree.get_enumerator<RightSpine>()));
 }
 
 TEST(BstThread, ThreadedEnumeratorInvalidatedByInsert) {
@@ -478,7 +521,7 @@ TEST(BstThread, RethreadInvalidatesThreadedEnumerator) {
     BinarySearchTree<int> tree = make_tree({2, 1, 3});
     tree.thread();
     auto iter = tree.get_threaded_enumerator();
-    tree.thread(DepthFirst("ПКЛ")); // Нити переписаны
+    tree.thread<DFS>("ПКЛ"); // Нити переписаны
     EXPECT_THROW(iter->move_next(), std::logic_error);
 }
 
@@ -486,13 +529,13 @@ TEST(BstThread, FailedRethreadInvalidatesOldEnumerator) {
     auto tree = make_tree({2, 1, 3});
     tree.thread();
     auto old = tree.get_threaded_enumerator();
-    EXPECT_THROW(tree.thread(InterruptedTraversal()), std::runtime_error);
+    EXPECT_THROW(tree.thread<InterruptedTraversal>(), std::runtime_error);
     EXPECT_THROW(old->move_next(), std::logic_error);
     EXPECT_FALSE(tree.is_threaded());
     EXPECT_THROW(tree.get_threaded_enumerator(), std::logic_error);
 
     tree.thread();
-    EXPECT_EQ(collect(tree.get_threaded_enumerator()), (std::vector<int>{1, 2, 3}));
+    EXPECT_EQ(collect(tree.get_threaded_enumerator()), (ArraySequence<int>{1, 2, 3}));
 }
 
 // Нити - WeakPtr: удалённые узлы не всплывают ни при обновлении, ни при повторной прошивке
@@ -501,18 +544,18 @@ TEST(BstThread, RethreadAfterRemoveSkipsRemoved) {
     tree.thread();
     tree.remove(4);
     tree.remove(1);
-    EXPECT_EQ(collect(tree.get_threaded_enumerator()), (std::vector<int>{2, 3, 5, 6, 7}));
+    EXPECT_EQ(collect(tree.get_threaded_enumerator()), (ArraySequence<int>{2, 3, 5, 6, 7}));
     tree.thread();
-    EXPECT_EQ(collect(tree.get_threaded_enumerator()), (std::vector<int>{2, 3, 5, 6, 7}));
+    EXPECT_EQ(collect(tree.get_threaded_enumerator()), (ArraySequence<int>{2, 3, 5, 6, 7}));
 }
 
 // Нити копии ведут по её собственным узлам, а не по узлам оригинала
 TEST(BstThread, CopyKeepsOwnThread) {
     BinarySearchTree<int> tree = make_tree({2, 1, 3});
-    tree.thread(DepthFirst("КЛП"));
+    tree.thread<DFS>("КЛП");
     BinarySearchTree<int> copy(tree);
     tree.clear();
-    EXPECT_EQ(collect(copy.get_threaded_enumerator()), (std::vector<int>{2, 1, 3}));
+    EXPECT_EQ(collect(copy.get_threaded_enumerator()), (ArraySequence<int>{2, 1, 3}));
 }
 
 // ---------- map / where / reduce ----------
@@ -530,7 +573,7 @@ TEST(BstFunctional, ReduceRespectsOrderAndType) {
     BinarySearchTree<int> tree = make_tree({2, 1, 3});
     auto concat = [](int elem, std::string acc) { return acc + std::to_string(elem); };
     EXPECT_EQ(tree.reduce(concat, std::string()), "123");
-    EXPECT_EQ(tree.reduce(concat, std::string(), DepthFirst("КПЛ")), "231");
+    EXPECT_EQ(tree.reduce<DFS>(concat, std::string(), "КПЛ"), "231");
     EXPECT_EQ(BinarySearchTree<int>().reduce(concat, std::string("x")), "x");
 }
 
@@ -538,10 +581,10 @@ TEST(BstFunctional, ReduceRespectsOrderAndType) {
 TEST(BstFunctional, ReduceAndToArrayTakeAnyStrategy) {
     BinarySearchTree<int> tree = make_tree({4, 2, 6, 1, 3, 5, 7});
     auto concat = [](int elem, std::string acc) { return acc + std::to_string(elem); };
-    EXPECT_EQ(tree.reduce(concat, std::string(), LevelOrder()), "4261357");
-    EXPECT_EQ(tree.reduce(concat, std::string(), RightSpine()), "467");
-    EXPECT_EQ(to_vector(tree.to_array(LevelOrder())), (std::vector<int>{4, 2, 6, 1, 3, 5, 7}));
-    EXPECT_EQ(to_vector(tree.to_array(LeavesOnly())), (std::vector<int>{1, 3, 5, 7}));
+    EXPECT_EQ(tree.reduce<BFS>(concat, std::string()), "4261357");
+    EXPECT_EQ(tree.reduce<RightSpine>(concat, std::string()), "467");
+    EXPECT_EQ(to_sequence(tree.to_array<BFS>()), (ArraySequence<int>{4, 2, 6, 1, 3, 5, 7}));
+    EXPECT_EQ(to_sequence(tree.to_array<LeavesOnly>()), (ArraySequence<int>{1, 3, 5, 7}));
 }
 
 // Аккумулятор передаётся перемещением: подходит и некопируемый
@@ -561,7 +604,7 @@ TEST(BstFunctional, MapRebuildsOrderAndMergesDuplicates) {
     EXPECT_EQ(negated, tree);
 
     BinarySearchTree<int> squares = tree.map([](int value) { return value * value; });
-    EXPECT_EQ(to_vector(squares.to_array()), (std::vector<int>{0, 1, 4}));
+    EXPECT_EQ(to_sequence(squares.to_array()), (ArraySequence<int>{0, 1, 4}));
 }
 
 TEST(BstFunctional, MapChangesType) {
@@ -603,7 +646,7 @@ TEST(BstFunctional, WhereIsBalanced) {
 TEST(BstSubtree, ExtractByRoot) {
     BinarySearchTree<int> tree = make_tree({4, 2, 6, 1, 3, 5, 7});
     BinarySearchTree<int> left = tree.get_subtree(2);
-    EXPECT_EQ(to_vector(left.to_array()), (std::vector<int>{1, 2, 3}));
+    EXPECT_EQ(to_sequence(left.to_array()), (ArraySequence<int>{1, 2, 3}));
     EXPECT_EQ(tree.get_subtree(7).get_count(), 1);
     EXPECT_THROW(tree.get_subtree(100), std::invalid_argument);
 }
@@ -661,7 +704,7 @@ TEST(BstString, UnbalancedInputIsRebalanced) {
         BinarySearchTree<int>::from_string("{1}()[{2}()[{3}()[{4}()[]]]]");
     EXPECT_EQ(tree.get_count(), 4);
     EXPECT_EQ(tree.get_height(), 3);
-    EXPECT_EQ(to_vector(tree.to_array()), (std::vector<int>{1, 2, 3, 4}));
+    EXPECT_EQ(to_sequence(tree.to_array()), (ArraySequence<int>{1, 2, 3, 4}));
 }
 
 TEST(BstString, MalformedInput) {
@@ -759,7 +802,7 @@ TEST(BstCollection, WorksThroughInterfaces) {
     EXPECT_TRUE(collection.contains(1));
 
     const IEnumerable<int>& enumerable = tree;
-    EXPECT_EQ(collect(enumerable.get_enumerator()), (std::vector<int>{1, 2, 3}));
+    EXPECT_EQ(collect(enumerable.get_enumerator()), (ArraySequence<int>{1, 2, 3}));
 }
 
 // ---------- Раскладка для GUI ----------
@@ -777,14 +820,14 @@ TEST(BstLayout, IndexOf) {
 // index - номер в порядке ЛКП, у значений 1..7 это value - 1
 TEST(BstLayout, VisitNodesGivesDepthAndParent) {
     BinarySearchTree<int> tree = make_tree({4, 2, 6, 1, 3, 5, 7});
-    std::vector<int> depths(7), parents(7);
+    ArraySequence<int> depths(7), parents(7);
     tree.visit_nodes([&](int value, int depth, int index, int parent_index) {
         EXPECT_EQ(index, value - 1);
         depths[index] = depth;
         parents[index] = parent_index;
     });
-    EXPECT_EQ(depths, (std::vector<int>{2, 1, 2, 0, 2, 1, 2}));
-    EXPECT_EQ(parents, (std::vector<int>{1, 3, 1, -1, 5, 3, 5}));
+    EXPECT_EQ(depths, (ArraySequence<int>{2, 1, 2, 0, 2, 1, 2}));
+    EXPECT_EQ(parents, (ArraySequence<int>{1, 3, 1, -1, 5, 3, 5}));
 }
 
 // ---------- Любые типы ----------
@@ -840,7 +883,7 @@ TEST(BstAnyType, ValueNeedsOnlyMove) {
     tree.find_value(1).rename("A"); // Значение меняется прямо в дереве
     EXPECT_EQ(tree.find(1).value.get_name(), "A");
 
-    tree.thread(DepthFirst("ПКЛ"));
+    tree.thread<DFS>("ПКЛ");
     tree.insert({3, Resource("c")});
     std::string names;
     auto iter = tree.get_threaded_enumerator();

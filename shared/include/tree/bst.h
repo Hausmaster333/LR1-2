@@ -46,7 +46,7 @@ class BinarySearchTree : public ICollection<TreeEntry<K, V>>, public IEnumerable
             public:
                 ReadOnlyNode() = default;
 
-                explicit operator bool() const { return static_cast<bool>(node); }
+                explicit operator bool() const { return bool(node); }
                 const Entry& value() const { return node->value; }
                 ReadOnlyNode left() const { return ReadOnlyNode(node->left); }
                 ReadOnlyNode right() const { return ReadOnlyNode(node->right); }
@@ -74,13 +74,13 @@ class BinarySearchTree : public ICollection<TreeEntry<K, V>>, public IEnumerable
         static void rotate_right(NodePtr& node);
         static void rebalance(NodePtr& node);
 
-        static bool insert_into(NodePtr& node, Entry& value); // Забирает value, только если вставил
+        static bool insert_into(NodePtr& node, Entry& value);
         static bool remove_from(NodePtr& node, const K& key);
 
         static const NodePtr& find_link(const NodePtr& node, const K& key);
         const NodePtr& node_at(const K& key) const;
         static const Entry& value_at(const NodePtr& node, int index);
-        static int index_in(const NodePtr& node, const K& key, int before);
+        static int index_in(const NodePtr& node, const K& key, int before_left_node);
 
         static NodePtr clone(const NodePtr& node);
         static bool same_structure(const NodePtr& first, const NodePtr& second);
@@ -98,13 +98,13 @@ class BinarySearchTree : public ICollection<TreeEntry<K, V>>, public IEnumerable
         void on_modified();
         void clear_threads() const;
 
-        template <class Traversal = DepthFirst>
-        auto walk(const Traversal& traversal = Traversal()) const {
-            return typename Traversal::template Walk<ReadOnlyNode>(ReadOnlyNode(root), traversal);
+        template <template <class> class Traversal = DFS, class... Args>
+        auto walk(const Args&... args) const {
+            return Traversal<ReadOnlyNode>(ReadOnlyNode(root), args...);
         }
 
-        template <class Traversal>
-        void link_threads(const Traversal& traversal) const;
+        template <template <class> class Traversal, class... Args>
+        void link_threads(const Args&... args) const;
 
     public:
         BinarySearchTree();
@@ -137,19 +137,19 @@ class BinarySearchTree : public ICollection<TreeEntry<K, V>>, public IEnumerable
         template <class F>
         BinarySearchTree where(F predicate) const;
 
-        template <class A, class F, class Traversal = DepthFirst>
-        A reduce(F func, A initial, const Traversal& traversal = Traversal()) const;
+        template <template <class> class Traversal = DFS, class A, class F, class... Args>
+        A reduce(F func, A initial, const Args&... args) const;
 
-        template <class Traversal = DepthFirst>
-        DynamicArray<Entry> to_array(const Traversal& traversal = Traversal()) const;
+        template <template <class> class Traversal = DFS, class... Args>
+        DynamicArray<Entry> to_array(const Args&... args) const;
 
         UnqPtr<IEnumerator<Entry>> get_enumerator() const override;
 
-        template <class Traversal>
-        UnqPtr<IEnumerator<Entry>> get_enumerator(const Traversal& traversal) const;
+        template <template <class> class Traversal, class... Args>
+        UnqPtr<IEnumerator<Entry>> get_enumerator(const Args&... args) const;
 
-        template <class Traversal = DepthFirst>
-        void thread(const Traversal& traversal = Traversal());
+        template <template <class> class Traversal = DFS, class... Args>
+        void thread(const Args&... args);
         bool is_threaded() const;
         UnqPtr<IEnumerator<Entry>> get_threaded_enumerator() const;
 
@@ -165,17 +165,15 @@ class BinarySearchTree : public ICollection<TreeEntry<K, V>>, public IEnumerable
         bool operator==(const BinarySearchTree& other) const;
         bool operator!=(const BinarySearchTree& other) const;
 
-        // Перечислитель по любой стратегии обхода
         template <class Traversal>
         class TraversalEnumerator : public IEnumerator<Entry> {
             private:
-                using Walk = typename Traversal::template Walk<ReadOnlyNode>;
-                Walk start; // Начальное состояние: из него reset()
-                Walk walker;
+                Traversal start;
+                Traversal walker;
                 ReadOnlyNode current;
                 WeakPtr<Generation> generation;
             public:
-                TraversalEnumerator(const Walk& walker, const WeakPtr<Generation>& generation)
+                TraversalEnumerator(const Traversal& walker, const WeakPtr<Generation>& generation)
                     : start(walker), walker(walker), generation(generation) {}
 
                 bool move_next() override;
@@ -183,7 +181,6 @@ class BinarySearchTree : public ICollection<TreeEntry<K, V>>, public IEnumerable
                 void reset() override;
         };
 
-        // Перебор прошитого дерева по нитям thread_next: O(1) дополнительной памяти
         class ThreadedEnumerator : public IEnumerator<Entry> {
             private:
                 WeakPtr<Node> head;

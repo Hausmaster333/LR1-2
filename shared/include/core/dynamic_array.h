@@ -19,6 +19,8 @@ class DynamicArray {
         const T& get(int index) const;
 
         int get_size() const;
+        T* raw_data() { return data.get(); }
+        const T* raw_data() const { return data.get(); }
 
         void set(int index, const T& value);
         void set(int index, T&& value); // Забирает значение без копии: для ShrdPtr без атомарных ++/--

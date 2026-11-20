@@ -12,10 +12,8 @@
 
 class Directory;
 
-// Узел виртуальной ФС: каталог или файл. Узлом владеет словарь детей родителя (ShrdPtr),
-// ссылка на родителя - WeakPtr: иначе родитель и ребёнок держали бы друг друга.
 class FsNode {
-    friend class Directory; // Имя и родителя меняет только каталог, чтобы не разойтись с ключом в словаре
+    friend class Directory;
     private:
         std::string name;
         WeakPtr<Directory> parent;
@@ -24,44 +22,40 @@ class FsNode {
         virtual ~FsNode() = default;
 
         const std::string& get_name() const { return name; }
-        ShrdPtr<Directory> get_parent() const { return parent.lock(); } // У корня - пустой
-        std::string get_path() const; // Полный путь от корня: "/docs/report.pdf"
+        ShrdPtr<Directory> get_parent() const { return parent.lock(); }
+        std::string get_path() const;
         virtual bool is_directory() const = 0;
 };
 
-// Каталог: дети лежат в словаре «имя -> узел» на AVL-дереве.
-// Узлы хранятся как ShrdPtr: дерево хранит значения копиями, а UnqPtr не копируется.
 class Directory : public FsNode {
     private:
-        // Конструктор открыт только для ShrdPtr::make внутри create(): снаружи Key не назвать
         struct Key {
             explicit Key() = default;
         };
 
         TreeDictionary<std::string, ShrdPtr<FsNode>> children;
         int subdirectory_count = 0;
-        WeakPtr<Directory> self; // Чтобы записать себя родителем ребёнка
+        WeakPtr<Directory> self;
     public:
         Directory(Key, const std::string& name) : FsNode(name) {}
         static ShrdPtr<Directory> create(const std::string& name);
 
         bool is_directory() const override { return true; }
         int get_child_count() const { return children.get_count(); }
-        bool has_subdirectories() const { return subdirectory_count > 0; } // O(1), для дерева в GUI
+        bool has_subdirectories() const { return subdirectory_count > 0; }
 
-        ShrdPtr<FsNode> find_child(const std::string& name) const; // Ребёнок по имени или пустой
-        DynamicArray<ShrdPtr<const FsNode>> list() const; // Сначала каталоги, потом файлы, по алфавиту
+        ShrdPtr<FsNode> find_child(const std::string& name) const;
+        DynamicArray<ShrdPtr<const FsNode>> list() const;
 
-        void add_child(ShrdPtr<FsNode> child); // Имя занято - std::invalid_argument
-        ShrdPtr<FsNode> remove_child(const std::string& name); // Отцепляет и отдаёт владение
+        void add_child(ShrdPtr<FsNode> child);
+        ShrdPtr<FsNode> remove_child(const std::string& name);
         void rename_child(const std::string& old_name, const std::string& new_name);
 };
 
-// Файл: виртуальное имя плюс источник содержимого
 class File : public FsNode {
     private:
         UnqPtr<IContentSource> content;
-        std::uint64_t id; // Уникален среди всех файлов: по нему упорядочен индекс
+        std::uint64_t id;
     public:
         File(const std::string& name, UnqPtr<IContentSource> content);
 

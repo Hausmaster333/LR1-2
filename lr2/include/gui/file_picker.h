@@ -6,7 +6,7 @@
 #include <filesystem>
 #include <string>
 #include <system_error>
-#include <vector>
+#include "core/array_sequence.h"
 
 // Окно выбора реального файла или папки на std::filesystem. Пути в UTF-8, кириллица работает.
 class FilePicker {
@@ -21,7 +21,7 @@ class FilePicker {
         Mode mode = Mode::File;
         bool open_requested = false;
         std::filesystem::path current;
-        std::vector<Entry> entries;
+        ArraySequence<Entry> entries;
         std::string selected; // Имя выбранного файла в current
         std::string error;
         char path_input[1024] = "";

@@ -369,7 +369,7 @@ class ExplorerPanel {
             int files = generate_files;
             int directories = generate_directories;
             int per_directory = (files + directories - 1) / directories;
-            double ms = bench::time_ms([&] {
+            double ms = time_ms([&] {
                 vfs.make_directory(root);
                 for (int number = 0; number < directories; number++) {
                     char name[32];
@@ -379,7 +379,7 @@ class ExplorerPanel {
                 for (int number = 0; number < files; number++) {
                     char name[32];
                     std::snprintf(name, sizeof(name), "/dir_%03d", number / per_directory);
-                    vfs.add_file(root + name, bench::file_name(number), UnqPtr<GeneratedSource>::make());
+                    vfs.add_file(root + name, file_name(number), UnqPtr<GeneratedSource>::make());
                 }
             });
             char text[160];

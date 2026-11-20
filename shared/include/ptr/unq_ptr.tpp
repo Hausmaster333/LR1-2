@@ -8,6 +8,7 @@ template <class T>
 T* UnqPtr<T>::release() noexcept {
     T* old = ptr;
     ptr = nullptr;
+
     return old;
 }
 
@@ -19,10 +20,9 @@ UnqPtr<T>::UnqPtr(UnqPtr<T>&& other) noexcept : ptr(other.release()) {}
 
 template <class T>
 UnqPtr<T>& UnqPtr<T>::operator=(UnqPtr<T>&& other) noexcept {
-    // Сначала забираем объект, потом удаляем свой: other может жить внутри удаляемого объекта
-    // (head = std::move(head->next)). Самоперемещение тоже безопасно.
     UnqPtr<T> incoming(std::move(other));
     swap(incoming);
+
     return *this;
 }
 
@@ -35,13 +35,13 @@ template <class U, class>
 UnqPtr<T>& UnqPtr<T>::operator=(UnqPtr<U>&& other) noexcept {
     UnqPtr<T> incoming(std::move(other));
     swap(incoming);
+
     return *this;
 }
 
 template <class T>
 template <class... Args>
 UnqPtr<T> UnqPtr<T>::make(Args&&... args) {
-    // Если конструктор бросит, new сам освободит память: утечки нет
     return UnqPtr<T>(new std::remove_cv_t<T>(std::forward<Args>(args)...));
 }
 
@@ -49,6 +49,7 @@ template <class T>
 template <class U, class>
 UnqPtr<T> UnqPtr<T>::clone() const {
     if (ptr == nullptr) return UnqPtr<T>();
+
     return UnqPtr<T>::make(*ptr);
 }
 
@@ -60,12 +61,14 @@ T* UnqPtr<T>::get() const noexcept {
 template <class T>
 T& UnqPtr<T>::operator*() const {
     if (ptr == nullptr) throw std::logic_error("UnqPtr is empty");
+
     return *ptr;
 }
 
 template <class T>
 T* UnqPtr<T>::operator->() const {
     if (ptr == nullptr) throw std::logic_error("UnqPtr is empty");
+
     return ptr;
 }
 
@@ -76,7 +79,6 @@ UnqPtr<T>::operator bool() const noexcept {
 
 template <class T>
 void UnqPtr<T>::reset() noexcept {
-    // Указатель обнуляется до удаления: деструктор объекта может обратиться к владельцу
     delete release();
 }
 
@@ -98,6 +100,7 @@ T* UnqPtr<T[]>::release() noexcept {
     T* old = data;
     data = nullptr;
     length = 0;
+
     return old;
 }
 
@@ -114,23 +117,26 @@ template <class T>
 UnqPtr<T[]>& UnqPtr<T[]>::operator=(UnqPtr<T[]>&& other) noexcept {
     UnqPtr<T[]> incoming(std::move(other));
     swap(incoming);
+
     return *this;
 }
 
 template <class T>
 UnqPtr<T[]> UnqPtr<T[]>::make_array(size_t count) {
-    static_assert(std::is_default_constructible<T>::value,
-                  "UnqPtr<T[]>::make_array() requires default-constructible elements");
+    static_assert(std::is_default_constructible<T>::value, "UnqPtr<T[]>::make_array() requires default-constructible elements");
     if (count == 0) return UnqPtr<T[]>();
+
     return UnqPtr<T[]>(new std::remove_cv_t<T>[count](), count);
 }
 
 template <class T>
 template <class U, class>
 UnqPtr<T[]> UnqPtr<T[]>::clone() const {
-    // Копия собирается в отдельном владельце: если присваивание бросит, она удалится сама
     auto copy = make_array(length);
-    for (size_t index = 0; index < length; index++) copy.data[index] = data[index];
+    for (size_t index = 0; index < length; index++) {
+        copy.data[index] = data[index];
+    }
+
     return copy;
 }
 
@@ -142,6 +148,7 @@ T* UnqPtr<T[]>::get() const noexcept {
 template <class T>
 T& UnqPtr<T[]>::operator[](size_t index) const {
     if (index >= length) throw std::out_of_range("UnqPtr array index out of range");
+
     return data[index];
 }
 

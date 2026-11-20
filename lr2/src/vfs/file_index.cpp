@@ -15,25 +15,25 @@ std::string normalize_extension(std::string extension) {
 }
 
 void FileIndex::add_to(Index& index, const std::string& key, const FilePtr& file) {
-    if (!index.contains_key(key)) index.add(key, ShrdPtr<FileSet>::make());
-    index.get(key)->insert(FileRef{file->get_id(), file});
+    if (!index.contains_key(key)) index.add(key, ShrdPtr<TreeSet<FileRef>>::make());
+    index.get(key)->add(FileRef{file->get_id(), file});
 }
 
 void FileIndex::remove_from(Index& index, const std::string& key, const File& file) {
-    FileSet& files = *index.get(key);
+    auto& files = *index.get(key);
     files.remove(FileRef{file.get_id(), WeakPtr<const File>()});
-    if (files.get_count() == 0) index.remove(key); // Пустые ключи не копятся
+    if (files.get_count() == 0) index.remove(key);
 }
 
-// Файлы из индекса удаляются раньше, чем из каталогов, поэтому lock() здесь не пуст
 DynamicArray<FileIndex::FilePtr> FileIndex::lookup(const Index& index, const std::string& key) {
     if (!index.contains_key(key)) return DynamicArray<FilePtr>();
 
-    const FileSet& files = *index.get(key);
+    const auto& files = *index.get(key);
     DynamicArray<FilePtr> result(files.get_count());
     int position = 0;
     auto iter = files.get_enumerator();
-    while (iter->move_next()) result.set(position++, iter->get_current().file.lock());
+    while (iter->move_next()) 
+        result.set(position++, iter->get_current().file.lock());
     return result;
 }
 

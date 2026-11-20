@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <utility>
 
-// Добавляет слабую ссылку: блок уже жив, синхронизировать нечего
 inline void acquire_weak(ControlBlock* block) noexcept {
     if (block != nullptr) block->weak_references.fetch_add(1, std::memory_order_relaxed);
 }
@@ -32,6 +31,7 @@ template <class T>
 WeakPtr<T>& WeakPtr<T>::operator=(const WeakPtr<T>& other) noexcept {
     WeakPtr<T> incoming(other);
     swap(incoming);
+
     return *this;
 }
 
@@ -39,6 +39,7 @@ template <class T>
 WeakPtr<T>& WeakPtr<T>::operator=(WeakPtr<T>&& other) noexcept {
     WeakPtr<T> incoming(std::move(other));
     swap(incoming);
+
     return *this;
 }
 
@@ -47,19 +48,19 @@ template <class U, class>
 WeakPtr<T>& WeakPtr<T>::operator=(const ShrdPtr<U>& owner) noexcept {
     WeakPtr<T> incoming(owner);
     swap(incoming);
+
     return *this;
 }
 
 template <class T>
 ShrdPtr<T> WeakPtr<T>::lock() const noexcept {
     if (block == nullptr) return ShrdPtr<T>();
-    // Владелец добавляется, только если счётчик ещё не 0: иначе другой поток уже удаляет объект,
-    // и простой fetch_add «оживил» бы его. compare_exchange повторяется, если счётчик успел смениться.
+
     std::uint32_t owners = block->references.load(std::memory_order_relaxed);
     do {
         if (owners == 0) return ShrdPtr<T>();
-    } while (!block->references.compare_exchange_weak(owners, owners + 1, std::memory_order_acq_rel,
-                                                      std::memory_order_relaxed));
+    } while (!block->references.compare_exchange_weak(owners, owners + 1, std::memory_order_acq_rel, std::memory_order_relaxed));
+
     return ShrdPtr<T>(block, ptr);
 }
 

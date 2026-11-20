@@ -1,5 +1,5 @@
-// Консольный прогон больших объёмов (10^6 - 10^8), результаты в CSV для графиков в GUI.
-// Пример: ./benchmark --max 100000000 --steps 1 --out lr1/benchmarks/results.csv
+// ./benchmark --max 100000000 --steps 1 --out lr1/benchmarks/results.csv
+#include "core/array_sequence.h"
 #include "bench/tree_benchmark.h"
 #include <cstring>
 #include <iostream>
@@ -11,14 +11,14 @@ namespace {
     }
 
     long long parse_count(const char* text) {
-        double value = std::stod(text); // Разрешаем запись вида 1e8
+        double value = std::stod(text);
         if (value < 1000 || value > 2e9) throw std::invalid_argument("N must be in [1e3, 2e9]");
         return static_cast<long long>(value);
     }
 }
 
 int main(int argc, char** argv) {
-    bench::Params params;
+    Params params;
     std::string out_path = "lr1/benchmarks/results.csv";
 
     try {
@@ -47,17 +47,17 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    std::vector<bench::SizeResult> results;
+    ArraySequence<SizeResult> results;
     std::printf("%12s %12s %12s %12s %12s %12s %10s\n", "n", "insert", "find", "traverse",
                 "serialize", "remove", "mem, MB");
-    for (long long size : bench::make_sizes(params)) {
-        results.push_back(bench::measure(size, params));
-        const bench::SizeResult& result = results.back();
+    for (long long size : make_sizes(params)) {
+        results.push_back(measure(size, params));
+        const SizeResult& result = results.back();
         std::printf("%12lld", size);
         for (double value : result.tree_ms) std::printf(" %12.2f", value);
         std::printf(" %10.1f\n", result.tree_memory_mb);
         std::fflush(stdout);
-        bench::save_csv(out_path, results); // Сохраняем по ходу: 10^8 идёт долго
+        save_csv(out_path, results);
     }
 
     std::cout << "Saved: " << out_path << "\n";

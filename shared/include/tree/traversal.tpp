@@ -1,27 +1,25 @@
 #include "tree/traversal.h"
 #include <utility>
 
-// ---------- DepthFirst ----------
-
 template <class Node>
-DepthFirst::Walk<Node>::Walk(const Node& root, const DepthFirst& traversal)
-    : nodes(root.height() + 1), steps(root.height() + 1), depth(0), order(traversal.get_order()) {
+DFS<Node>::DFS(const Node& root, TraversalOrder order)
+    : nodes(root.height() + 1), steps(root.height() + 1), depth(0), order(order) {
     if (root) push(root);
 }
 
 template <class Node>
-void DepthFirst::Walk<Node>::push(Node node) {
+void DFS<Node>::push(Node node) {
     nodes.set(depth, std::move(node));
     steps.set(depth, 0);
     depth++;
 }
 
 template <class Node>
-Node DepthFirst::Walk<Node>::next() {
+Node DFS<Node>::next() {
     while (depth > 0) {
         int step = steps.get(depth - 1);
         if (step == 3) {
-            nodes.set(--depth, Node()); // Пройденный узел больше не держим
+            nodes.set(--depth, Node());
             continue;
         }
 
@@ -31,31 +29,30 @@ Node DepthFirst::Walk<Node>::next() {
         if (part == TreePart::Root) return node;
 
         Node child = (part == TreePart::Left) ? node.left() : node.right();
-        if (child) push(std::move(child)); // Узел переезжает в стек без лишней копии
+        if (child) push(std::move(child));
     }
     return Node();
 }
 
-// ---------- LevelOrder ----------
-
 template <class Node>
-LevelOrder::Walk<Node>::Walk(const Node& root, const LevelOrder&) : queue(1), head(0), tail(0) {
+BFS<Node>::BFS(const Node& root) : queue(1), head(0), tail(0) {
     enqueue(root);
 }
 
 template <class Node>
-void LevelOrder::Walk<Node>::enqueue(Node node) {
+void BFS<Node>::enqueue(Node node) {
     if (!node) return;
-    if (tail == queue.get_size()) queue.resize(2 * tail);
+    if (tail == queue.get_size()) 
+        queue.resize(2 * tail);
     queue.set(tail++, std::move(node));
 }
 
 template <class Node>
-Node LevelOrder::Walk<Node>::next() {
+Node BFS<Node>::next() {
     if (head == tail) return Node();
 
     Node node = queue.get(head);
-    queue.set(head++, Node()); // Пройденный узел больше не держим
+    queue.set(head++, Node());
     enqueue(node.left());
     enqueue(node.right());
     return node;

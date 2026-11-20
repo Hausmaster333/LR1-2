@@ -64,6 +64,7 @@ namespace {
         bool show_explorer = false; // Переключиться на проводник в следующем кадре
 
         void draw() {
+            benchmarks.update();
             const ImGuiViewport* viewport = ImGui::GetMainViewport();
             ImGui::SetNextWindowPos(viewport->WorkPos);
             ImGui::SetNextWindowSize(viewport->WorkSize);

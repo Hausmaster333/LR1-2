@@ -1,5 +1,6 @@
 // Консольный прогон: поиск обходом против индекса и построение индекса, результаты в CSV.
 // Пример: ./benchmark --max 1000000 --out lr2/benchmarks/results.csv
+#include "core/array_sequence.h"
 #include "bench/vfs_benchmark.h"
 #include <cstring>
 
@@ -16,7 +17,7 @@ namespace {
 }
 
 int main(int argc, char** argv) {
-    bench::Params params;
+    Params params;
     std::string out_path = "lr2/benchmarks/results.csv";
 
     try {
@@ -39,19 +40,19 @@ int main(int argc, char** argv) {
         return 1;
     }
 
-    std::vector<bench::SizeResult> results;
+    ArraySequence<SizeResult> results;
     // Построение индекса (asc/desc/random) и один поиск по имени (scan/index) - в мс
     std::printf("%10s | %7s %8s %7s | %12s %12s | %8s\n", "files", "asc", "desc", "random",
                 "scan", "index", "mem, MB");
-    for (long long size : bench::make_sizes(params)) {
-        results.push_back(bench::measure(size, params));
-        const bench::SizeResult& result = results.back();
+    for (long long size : make_sizes(params)) {
+        results.push_back(measure(size, params));
+        const SizeResult& result = results.back();
         std::printf("%10lld | %7.1f %8.1f %7.1f | %12.3f %12.5f | %8.1f\n", size,
-                    result.build_ms[bench::ASCENDING], result.build_ms[bench::DESCENDING],
-                    result.build_ms[bench::RANDOM], result.scan_ms, result.index_ms,
+                    result.build_ms[ASCENDING], result.build_ms[DESCENDING],
+                    result.build_ms[RANDOM], result.scan_ms, result.index_ms,
                     result.index_memory_mb);
         std::fflush(stdout);
-        bench::save_csv(out_path, results); // Сохраняем по ходу: большие n идут долго
+        save_csv(out_path, results); // Сохраняем по ходу: большие n идут долго
     }
 
     std::printf("Saved: %s\n", out_path.c_str());

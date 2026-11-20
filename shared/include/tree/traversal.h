@@ -8,42 +8,37 @@
 
 enum class TreePart { Root, Left, Right };
 
-namespace traversal_detail {
+inline std::size_t match_tree_part(const std::string& text, std::size_t pos, TreePart& part) {
     struct PartSymbol {
         const char* text;
         TreePart part;
     };
 
-    // Кириллица как в задании и латинские синонимы для ввода с консоли Windows
-    inline const PartSymbol PART_SYMBOLS[] = {
+    static constexpr PartSymbol PART_SYMBOLS[] = {
         {"К", TreePart::Root}, {"Л", TreePart::Left}, {"П", TreePart::Right},
         {"K", TreePart::Root}, {"N", TreePart::Root},
         {"L", TreePart::Left},
         {"P", TreePart::Right}, {"R", TreePart::Right},
     };
 
-    // Если в text с позиции pos стоит символ части дерева, возвращает его длину в байтах
-    inline std::size_t match_part(const std::string& text, std::size_t pos, TreePart& part) {
-        for (const PartSymbol& symbol : PART_SYMBOLS) {
-            std::string candidate(symbol.text);
-            if (text.compare(pos, candidate.size(), candidate) == 0) {
-                part = symbol.part;
-                return candidate.size();
-            }
+    for (const PartSymbol& symbol : PART_SYMBOLS) {
+        std::string candidate(symbol.text);
+        if (text.compare(pos, candidate.size(), candidate) == 0) {
+            part = symbol.part;
+            return candidate.size();
         }
-        return 0;
     }
+    return 0;
+}
 
-    inline const char* part_name(TreePart part) {
-        switch (part) {
-            case TreePart::Root: return "К";
-            case TreePart::Left: return "Л";
-            default: return "П";
-        }
+inline const char* tree_part_name(TreePart part) {
+    switch (part) {
+        case TreePart::Root: return "К";
+        case TreePart::Left: return "Л";
+        default: return "П";
     }
 }
 
-// Порядок обхода: перестановка из трёх частей (корень, левое, правое поддерево)
 class TraversalOrder {
     private:
         TreePart parts[3];
@@ -64,14 +59,13 @@ class TraversalOrder {
             validate();
         }
 
-        // "КЛП", "LKP", "NLR" и т.п.
         static TraversalOrder from_string(const std::string& text) {
             TreePart found[3];
             int count = 0;
             std::size_t pos = 0;
             while (pos < text.size()) {
                 TreePart part;
-                std::size_t length = traversal_detail::match_part(text, pos, part);
+                std::size_t length = match_tree_part(text, pos, part);
                 if (length == 0 || count == 3) {
                     throw std::invalid_argument("Bad traversal order: '" + text + "'");
                 }
@@ -89,7 +83,7 @@ class TraversalOrder {
 
         std::string to_string() const {
             std::string result;
-            for (TreePart part : parts) result += traversal_detail::part_name(part);
+            for (TreePart part : parts) result += tree_part_name(part);
             return result;
         }
 
@@ -100,13 +94,34 @@ class TraversalOrder {
         bool operator!=(const TraversalOrder& other) const { return !(*this == other); }
 };
 
-// Строка форматирования вида "{К}(Л)[П]": порядок частей задаёт обход, остальные символы -
-// ограничители. Узел записывается как L0 X1 L1 X2 L2 X3 L3, пустое поддерево - пустой строкой.
-// Чтобы чтение было однозначным:
-//   - все четыре ограничителя L0..L3 непустые;
-//   - ограничитель после поддерева не начинается с первого символа L0
-//     (иначе нельзя отличить начало поддерева от пустого поддерева);
-//   - '\' зарезервирован для экранирования ограничителей внутри значений.
+template <class Node>
+class DFS {
+    private:
+        DynamicArray<Node> nodes;
+        DynamicArray<int> steps;
+        int depth;
+        TraversalOrder order;
+
+        void push(Node node);
+    public:
+        explicit DFS(const Node& root, TraversalOrder order = {});
+        DFS(const Node& root, const std::string& order) : DFS(root, TraversalOrder::from_string(order)) {}
+        Node next();
+};
+
+template <class Node>
+class BFS {
+    private:
+        DynamicArray<Node> queue;
+        int head;
+        int tail;
+
+        void enqueue(Node node);
+    public:
+        explicit BFS(const Node& root);
+        Node next();
+};
+
 class TraversalFormat {
     private:
         std::string literals[4];
@@ -138,7 +153,7 @@ class TraversalFormat {
             std::size_t pos = 0;
             while (pos < pattern.size()) {
                 TreePart part;
-                std::size_t length = traversal_detail::match_part(pattern, pos, part);
+                std::size_t length = match_tree_part(pattern, pos, part);
                 if (length == 0) {
                     literals[count] += pattern[pos++];
                     continue;
@@ -181,7 +196,6 @@ class TraversalFormat {
             return result;
         }
 
-        // Читает экранированное значение до первого неэкранированного ограничителя
         std::string read_value(const std::string& text, std::size_t& pos) const {
             std::string value;
             while (pos < text.size()) {
@@ -204,66 +218,11 @@ class TraversalFormat {
         std::string to_string() const {
             std::string result = literals[0];
             for (int index = 0; index < 3; index++) {
-                result += traversal_detail::part_name(order.get(index));
+                result += tree_part_name(order.get(index));
                 result += literals[index + 1];
             }
             return result;
         }
-};
-
-// ---------------------------------------------------------------- Стратегии обхода
-// Обход дерева - стратегия: объект, который дерево получает одним и тем же параметром в
-// get_enumerator, reduce, to_array и thread, как std::set получает компаратор:
-//     tree.reduce(f, 0, DepthFirst("КЛП"))
-//     tree.reduce(f, 0, LevelOrder())
-// Шесть порядков КЛП..ПКЛ - одна стратегия DepthFirst со своим параметром, а не особый случай.
-// Стратегия - описание обхода, сам перебор - её вложенный шаблон Walk<Node>: конструктор
-// Walk(корень, стратегия) и Node next(), который отдаёт следующий узел или пустой Node,
-// когда обход закончен. Node - узел только для чтения: explicit operator bool, value(),
-// left(), right(), height(). Walk копируется в начальном состоянии: из копии делается reset().
-
-// В глубину в одном из 6 порядков, по умолчанию ЛКП - по возрастанию ключа
-class DepthFirst {
-    private:
-        TraversalOrder order;
-    public:
-        explicit DepthFirst(const TraversalOrder& order = TraversalOrder()) : order(order) {}
-        // "КЛП", "NLR" и т.п.; неверная строка - std::invalid_argument
-        explicit DepthFirst(const std::string& order) : order(TraversalOrder::from_string(order)) {}
-        const TraversalOrder& get_order() const { return order; }
-
-        // Итеративный, чтобы отдавать узлы по одному: рекурсию не остановить посреди обхода.
-        // Стек кадров не глубже высоты дерева.
-        template <class Node>
-        class Walk {
-            private:
-                DynamicArray<Node> nodes;
-                DynamicArray<int> steps; // Сколько частей узла (из трёх) уже пройдено
-                int depth;
-                TraversalOrder order;
-
-                void push(Node node);
-            public:
-                Walk(const Node& root, const DepthFirst& traversal);
-                Node next();
-        };
-};
-
-// По уровням: сверху вниз, на каждом уровне слева направо
-class LevelOrder {
-    public:
-        template <class Node>
-        class Walk {
-            private:
-                DynamicArray<Node> queue; // Растёт удвоением, пройденные ячейки очищаются
-                int head;
-                int tail;
-
-                void enqueue(Node node); // Пустой узел пропускается
-            public:
-                Walk(const Node& root, const LevelOrder& traversal);
-                Node next();
-        };
 };
 
 #include "tree/traversal.tpp"

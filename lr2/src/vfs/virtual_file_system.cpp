@@ -1,3 +1,4 @@
+#include "core/array_sequence.h"
 #include "vfs/virtual_file_system.h"
 #include <filesystem>
 #include <stdexcept>
@@ -28,26 +29,49 @@ static std::string real_name(fs::path path) {
     return path.filename().u8string();
 }
 
-static ShrdPtr<File> make_file(const fs::path& real_path, const std::string& name) {
-    return ShrdPtr<File>::make(name, UnqPtr<RealFileSource>::make(fs::absolute(real_path).u8string()));
+namespace {
+    class DiskReader : public IFileSystemReader {
+        public:
+            UnqPtr<IContentSource> open_file(const fs::path& path) const override {
+                if (!fs::is_regular_file(path)) {
+                    throw std::invalid_argument("Реальный файл не найден: " + path.u8string());
+                }
+                return UnqPtr<RealFileSource>::make(fs::absolute(path).u8string());
+            }
+
+            ArraySequence<DiskEntry> list_directory(const fs::path& path) const override {
+                if (!fs::is_directory(path)) {
+                    throw std::invalid_argument("Реальная папка не найдена: " + path.u8string());
+                }
+                ArraySequence<DiskEntry> entries;
+                for (const auto& entry : fs::directory_iterator(path, fs::directory_options::skip_permission_denied)) {
+                    if (entry.is_symlink()) continue;
+                    if (entry.is_directory()) entries.push_back({entry.path(), true});
+                    else if (entry.is_regular_file()) entries.push_back({entry.path(), false});
+                }
+                return entries;
+            }
+    };
+
+    DiskReader disk_reader;
 }
 
-// Копия реальной папки в виде отдельного каталога, ещё не прикреплённого к ФС
-static ShrdPtr<Directory> build_directory(const fs::path& real_path) {
-    ShrdPtr<Directory> directory = Directory::create(real_name(real_path));
-    auto options = fs::directory_options::skip_permission_denied;
-    for (const fs::directory_entry& entry : fs::directory_iterator(real_path, options)) {
-        if (entry.is_symlink()) continue; // Ссылка на папку выше зациклила бы импорт
-        if (entry.is_directory()) {
-            directory->add_child(build_directory(entry.path()));
-        } else if (entry.is_regular_file()) {
-            directory->add_child(make_file(entry.path(), real_name(entry.path())));
+ShrdPtr<Directory> VirtualFileSystem::build_directory(const fs::path& path) const {
+    auto directory = Directory::create(real_name(path));
+    for (const auto& entry : reader.list_directory(path)) {
+        if (entry.is_directory) {
+            directory->add_child(build_directory(entry.path));
+        } else {
+            directory->add_child(ShrdPtr<File>::make(real_name(entry.path), reader.open_file(entry.path)));
         }
     }
     return directory;
 }
 
-VirtualFileSystem::VirtualFileSystem() : root(Directory::create("")) {}
+VirtualFileSystem::VirtualFileSystem() : VirtualFileSystem(disk_reader) {}
+
+VirtualFileSystem::VirtualFileSystem(IFileSystemReader& reader)
+    : root(Directory::create("")), reader(reader) {}
 
 ShrdPtr<FsNode> VirtualFileSystem::find(const std::string& path) const {
     if (path.empty() || path[0] != '/') throw std::invalid_argument("Путь должен начинаться с '/': " + path);
@@ -117,17 +141,13 @@ void VirtualFileSystem::add_file(const std::string& directory_path, const std::s
 void VirtualFileSystem::attach_file(const std::string& real_path, const std::string& directory_path,
                                     const std::string& name) {
     fs::path real = fs::u8path(real_path);
-    if (!fs::is_regular_file(real)) throw std::invalid_argument("Реальный файл не найден: " + real_path);
-
-    add_file(directory_path, name.empty() ? real_name(real) : name,
-             UnqPtr<RealFileSource>::make(fs::absolute(real).u8string()));
+    add_file(directory_path, name.empty() ? real_name(real) : name, reader.open_file(real));
 }
 
 void VirtualFileSystem::import_directory(const std::string& real_path,
                                          const std::string& directory_path) {
     ShrdPtr<Directory> directory = directory_at(directory_path);
     fs::path real = fs::u8path(real_path);
-    if (!fs::is_directory(real)) throw std::invalid_argument("Реальная папка не найдена: " + real_path);
 
     // Каталог собирается целиком отдельно и прикрепляется в конце: при ошибке ФС не меняется
     ShrdPtr<Directory> imported = build_directory(real);

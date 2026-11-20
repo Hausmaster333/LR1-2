@@ -3,8 +3,6 @@
 #include <type_traits>
 #include <utility>
 
-// ---------- Перечислители ----------
-
 template <class K, class V>
 void BinarySearchTree<K, V>::check(const WeakPtr<Generation>& generation) {
     if (generation.expired()) {
@@ -24,7 +22,7 @@ template <class Traversal>
 bool BinarySearchTree<K, V>::TraversalEnumerator<Traversal>::move_next() {
     check(generation);
     current = walker.next();
-    return static_cast<bool>(current);
+    return bool(current);
 }
 
 template <class K, class V>
@@ -42,7 +40,6 @@ void BinarySearchTree<K, V>::TraversalEnumerator<Traversal>::reset() {
     current = ReadOnlyNode();
 }
 
-// Поколение то же, значит, дерево не менялось: ни один узел цепочки не удалён и lock() не пуст
 template <class K, class V>
 bool BinarySearchTree<K, V>::ThreadedEnumerator::move_next() {
     check(generation);
@@ -52,7 +49,7 @@ bool BinarySearchTree<K, V>::ThreadedEnumerator::move_next() {
         current = current->thread_next.lock();
     }
     started = true;
-    return static_cast<bool>(current);
+    return bool(current);
 }
 
 template <class K, class V>
@@ -68,8 +65,6 @@ void BinarySearchTree<K, V>::ThreadedEnumerator::reset() {
     started = false;
 }
 
-// ---------- Конструкторы и присваивание ----------
-
 template <class K, class V>
 BinarySearchTree<K, V>::BinarySearchTree() : root(), threads_stale(false) {}
 
@@ -84,21 +79,15 @@ BinarySearchTree<K, V>::BinarySearchTree(const Entry* items, int count) : Binary
     for (int idx = 0; idx < count; idx++) insert(items[idx]);
 }
 
-// Копия прошита тем же обходом, но по своим узлам: нити свяжутся при первом переборе по ним
 template <class K, class V>
 BinarySearchTree<K, V>::BinarySearchTree(const BinarySearchTree<K, V>& other)
-    : root(clone(other.root)),
-      thread_rule(other.thread_rule),
-      threads_stale(static_cast<bool>(other.thread_rule)) {}
+    : root(clone(other.root)), thread_rule(other.thread_rule), threads_stale(other.is_threaded()) {}
 
-// Узлы переезжают вместе с меткой поколения, поэтому выданные перечислители остаются рабочими
 template <class K, class V>
 BinarySearchTree<K, V>::BinarySearchTree(BinarySearchTree<K, V>&& other) noexcept
-    : generation(std::move(other.generation)),
+    : generation(std::move(other.generation)), 
       root(std::move(other.root)),
-      thread_head(std::move(other.thread_head)),
-      thread_rule(std::move(other.thread_rule)),
-      threads_stale(other.threads_stale) {
+      thread_head(std::move(other.thread_head)), thread_rule(std::move(other.thread_rule)), threads_stale(other.threads_stale) {
     other.thread_rule = nullptr;
 }
 
@@ -120,7 +109,7 @@ BinarySearchTree<K, V>& BinarySearchTree<K, V>::operator=(BinarySearchTree<K, V>
     thread_rule = std::move(other.thread_rule);
     other.thread_rule = nullptr;
     threads_stale = other.threads_stale;
-    generation = std::move(other.generation); // Старая метка уходит вместе со старыми узлами
+    generation = std::move(other.generation);
     return *this;
 }
 
@@ -152,6 +141,7 @@ template <class K, class V>
 void BinarySearchTree<K, V>::update(const NodePtr& node) {
     int left_height = height_of(node->left);
     int right_height = height_of(node->right);
+
     node->height = 1 + (left_height > right_height ? left_height : right_height);
     node->subtree_size = 1 + subtree_size_of(node->left) + subtree_size_of(node->right);
 }
@@ -179,18 +169,18 @@ void BinarySearchTree<K, V>::rotate_right(NodePtr& node) {
 template <class K, class V>
 void BinarySearchTree<K, V>::rebalance(NodePtr& node) {
     update(node);
-    int balance = height_of(node->left) - height_of(node->right);
+    int balance_factor = height_of(node->left) - height_of(node->right);
 
-    if (balance > 1) {
+    if (balance_factor > 1) {
         const NodePtr& left = node->left;
         if (height_of(left->left) < height_of(left->right)) {
-            rotate_left(node->left); // Случай лево-право
+            rotate_left(node->left);
         }
         rotate_right(node);
-    } else if (balance < -1) {
+    } else if (balance_factor < -1) {
         const NodePtr& right = node->right;
         if (height_of(right->right) < height_of(right->left)) {
-            rotate_right(node->right); // Случай право-лево
+            rotate_right(node->right);
         }
         rotate_left(node);
     }
@@ -231,10 +221,11 @@ bool BinarySearchTree<K, V>::remove_from(NodePtr& node, const K& key) {
     } else if (!node->right) {
         node = std::move(node->left);
     } else {
-        // Два ребёнка: на место узла встаёт минимальный из правого поддерева
+
         NodePtr successor = node->right;
-        while (successor->left) successor = successor->left;
-        // Пока successor владеет узлом, его можно удалить из прежнего места и переставить сюда.
+        while (successor->left) 
+            successor = successor->left;
+
         remove_from(node->right, key_of(successor->value));
         successor->left = std::move(node->left);
         successor->right = std::move(node->right);
@@ -262,13 +253,13 @@ const TreeEntry<K, V>& BinarySearchTree<K, V>::value_at(const NodePtr& node, int
     return value_at(node->right, index - left_size - 1);
 }
 
-// before - сколько элементов левее поддерева node
+// before_left_node - сколько элементов левее поддерева node
 template <class K, class V>
-int BinarySearchTree<K, V>::index_in(const NodePtr& node, const K& key, int before) {
+int BinarySearchTree<K, V>::index_in(const NodePtr& node, const K& key, int before_left_node) {
     if (!node) return -1;
-    if (key < key_of(node->value)) return index_in(node->left, key, before);
-    if (key_of(node->value) < key) return index_in(node->right, key, before + subtree_size_of(node->left) + 1);
-    return before + subtree_size_of(node->left);
+    if (key < key_of(node->value)) return index_in(node->left, key, before_left_node);
+    if (key_of(node->value) < key) return index_in(node->right, key, before_left_node + subtree_size_of(node->left) + 1);
+    return before_left_node + subtree_size_of(node->left);
 }
 
 template <class K, class V>
@@ -291,8 +282,6 @@ bool BinarySearchTree<K, V>::same_structure(const NodePtr& first, const NodePtr&
         && same_structure(first->left, second->left)
         && same_structure(first->right, second->right);
 }
-
-// Связывает готовые узлы отсортированного массива в сбалансированное дерево, элементы не копирует
 template <class K, class V>
 typename BinarySearchTree<K, V>::NodePtr
 BinarySearchTree<K, V>::build_balanced(const DynamicArray<NodePtr>& sorted, int begin, int end) {
@@ -312,23 +301,23 @@ void BinarySearchTree<K, V>::on_modified() {
     if (thread_rule) threads_stale = true;
 }
 
-// Нить на удалённый узел держала бы его блок (узел лежит в блоке make()), поэтому перед
-// перепрошивкой нити снимаются целиком, в том числе у узлов, которые обход не посетит
 template <class K, class V>
 void BinarySearchTree<K, V>::clear_threads() const {
     auto walker = walk();
-    while (ReadOnlyNode node = walker.next()) node.node->thread_next.reset();
+    while (ReadOnlyNode node = walker.next())
+        node.node->thread_next.reset();
     thread_head.reset();
 }
 
 template <class K, class V>
-template <class Traversal>
-void BinarySearchTree<K, V>::link_threads(const Traversal& traversal) const {
+template <template <class> class Traversal, class... Args>
+void BinarySearchTree<K, V>::link_threads(const Args&... args) const {
     clear_threads();
     NodePtr previous;
-    auto walker = walk(traversal);
+    auto walker = walk<Traversal>(args...);
     while (ReadOnlyNode view = walker.next()) {
         const NodePtr& node = view.node;
+
         if (!previous) {
             thread_head = node;
         } else {
@@ -338,8 +327,6 @@ void BinarySearchTree<K, V>::link_threads(const Traversal& traversal) const {
     }
     threads_stale = false;
 }
-
-// ---------- Базовые операции ----------
 
 template <class K, class V>
 bool BinarySearchTree<K, V>::insert(Entry value) {
@@ -403,7 +390,7 @@ bool BinarySearchTree<K, V>::contains(const Entry& value) const {
 
 template <class K, class V>
 bool BinarySearchTree<K, V>::contains_key(const K& key) const {
-    return static_cast<bool>(find_link(root, key));
+    return bool(find_link(root, key));
 }
 
 template <class K, class V>
@@ -421,7 +408,6 @@ template <class F>
 void BinarySearchTree<K, V>::visit_from(const NodePtr& node, int depth, int parent_index, int& next_index, F& visit) {
     if (!node) return;
 
-    // Индекс узла известен заранее: столько элементов левее него
     int index = next_index + subtree_size_of(node->left);
     visit_from(node->left, depth + 1, index, next_index, visit);
     visit(std::as_const(node->value), depth, index, parent_index);
@@ -436,44 +422,40 @@ void BinarySearchTree<K, V>::visit_nodes(F visit) const {
     visit_from(root, 0, -1, next_index, visit);
 }
 
-// ---------- map / where / reduce ----------
-
 template <class K, class V>
 template <class F>
 auto BinarySearchTree<K, V>::map(F func) const {
-    using Result = std::decay_t<decltype(func(get(0)))>; // Только тип выражения, дерево может быть пустым
+    using Result = std::decay_t<decltype(func(get(0)))>;
     BinarySearchTree<Result> result;
     auto walker = walk();
-    while (ReadOnlyNode node = walker.next()) result.insert(func(node.value()));
+    while (ReadOnlyNode node = walker.next()) 
+        result.insert(func(node.value()));
     return result;
 }
 
 template <class K, class V>
 template <class F>
 BinarySearchTree<K, V> BinarySearchTree<K, V>::where(F predicate) const {
-    // Отфильтрованный ЛКП-обход уже отсортирован: из копий подходящих элементов строим
-    // сбалансированное дерево за O(n)
     DynamicArray<NodePtr> matched(get_count());
     int matched_count = 0;
     auto walker = walk();
     while (ReadOnlyNode node = walker.next()) {
-        if (predicate(node.value())) matched.set(matched_count++, NodePtr::make(node.value()));
+        if (predicate(node.value())) 
+            matched.set(matched_count++, NodePtr::make(node.value()));
     }
     return BinarySearchTree<K, V>(build_balanced(matched, 0, matched_count));
 }
 
 template <class K, class V>
-template <class A, class F, class Traversal>
-A BinarySearchTree<K, V>::reduce(F func, A initial, const Traversal& traversal) const {
+template <template <class> class Traversal, class A, class F, class... Args>
+A BinarySearchTree<K, V>::reduce(F func, A initial, const Args&... args) const {
     A accumulator = std::move(initial);
-    auto walker = walk(traversal);
+    auto walker = walk<Traversal>(args...);
     while (ReadOnlyNode node = walker.next()) {
         accumulator = func(node.value(), std::move(accumulator));
     }
     return accumulator;
 }
-
-// ---------- Поддеревья ----------
 
 template <class K, class V>
 BinarySearchTree<K, V> BinarySearchTree<K, V>::get_subtree(const K& key) const {
@@ -483,8 +465,6 @@ BinarySearchTree<K, V> BinarySearchTree<K, V>::get_subtree(const K& key) const {
     return BinarySearchTree<K, V>(clone(node));
 }
 
-// В BST корень искомого поддерева однозначно находится поиском, дальше
-// сравниваем форму и значения целиком
 template <class K, class V>
 bool BinarySearchTree<K, V>::contains_subtree(const BinarySearchTree<K, V>& other) const {
     if (!other.root) return true;
@@ -493,22 +473,19 @@ bool BinarySearchTree<K, V>::contains_subtree(const BinarySearchTree<K, V>& othe
     return node && same_structure(node, other.root);
 }
 
-// ---------- Прошивка ----------
-
-// Обход запоминается вместе с аргументами: по нему дерево перешивает себя после изменений
 template <class K, class V>
-template <class Traversal>
-void BinarySearchTree<K, V>::thread(const Traversal& traversal) {
-    auto rule = [traversal](const BinarySearchTree& tree) { tree.link_threads(traversal); };
-    generation.reset(); // Старые нити могут измениться уже на первом шаге обхода
+template <template <class> class Traversal, class... Args>
+void BinarySearchTree<K, V>::thread(const Args&... args) {
+    auto rule = [args...](const BinarySearchTree& tree) { tree.link_threads<Traversal>(args...); };
+    generation.reset();
     thread_rule = nullptr;
-    link_threads(traversal);
+    link_threads<Traversal>(args...);
     thread_rule = std::move(rule);
 }
 
 template <class K, class V>
 bool BinarySearchTree<K, V>::is_threaded() const {
-    return static_cast<bool>(thread_rule);
+    return thread_rule != nullptr;
 }
 
 template <class K, class V>
@@ -518,24 +495,20 @@ UnqPtr<IEnumerator<TreeEntry<K, V>>> BinarySearchTree<K, V>::get_threaded_enumer
     return UnqPtr<ThreadedEnumerator>::make(thread_head, current_generation());
 }
 
-// ---------- Обходы, строки ----------
-
-// Стратегия может пройти не все узлы: лишний хвост массива отрезается
 template <class K, class V>
-template <class Traversal>
-DynamicArray<TreeEntry<K, V>> BinarySearchTree<K, V>::to_array(const Traversal& traversal) const {
+template <template <class> class Traversal, class... Args>
+DynamicArray<TreeEntry<K, V>> BinarySearchTree<K, V>::to_array(const Args&... args) const {
     DynamicArray<Entry> result(get_count());
     int index = 0;
-    auto walker = walk(traversal);
+    auto walker = walk<Traversal>(args...);
     while (ReadOnlyNode node = walker.next()) result.set(index++, node.value());
     if (index < result.get_size()) result.resize(index);
     return result;
 }
 
 template <class K, class V>
-void BinarySearchTree<K, V>::write_node(const NodePtr& node, const TraversalFormat& format,
-                                     std::string& out) {
-    if (!node) return; // Пустое поддерево - пустая строка
+void BinarySearchTree<K, V>::write_node(const NodePtr& node, const TraversalFormat& format, std::string& out) {
+    if (!node) return;
 
     const TraversalOrder& order = format.get_order();
     out += format.get_literal(0);
@@ -559,9 +532,8 @@ std::string BinarySearchTree<K, V>::to_string(const TraversalFormat& format) con
 
 template <class K, class V>
 typename BinarySearchTree<K, V>::NodePtr
-BinarySearchTree<K, V>::read_node(const std::string& text, std::size_t& pos,
-                               const TraversalFormat& format, int depth) {
-    if (!format.literal_at(text, pos, 0)) return {}; // Пустое поддерево
+BinarySearchTree<K, V>::read_node(const std::string& text, std::size_t& pos, const TraversalFormat& format, int depth) {
+    if (!format.literal_at(text, pos, 0)) return {};
     if (depth > MAX_PARSE_DEPTH) throw std::length_error("Tree in string is too deep");
     pos += format.get_literal(0).size();
 
@@ -601,11 +573,8 @@ bool BinarySearchTree<K, V>::is_balanced(const NodePtr& node) {
     return balance >= -1 && balance <= 1 && is_balanced(node->left) && is_balanced(node->right);
 }
 
-// Строка может описывать любое корректное BST; если оно не AVL-сбалансировано,
-// перестраиваем его, сохраняя элементы
 template <class K, class V>
-BinarySearchTree<K, V> BinarySearchTree<K, V>::from_string(const std::string& text,
-                                                     const TraversalFormat& format) {
+BinarySearchTree<K, V> BinarySearchTree<K, V>::from_string(const std::string& text, const TraversalFormat& format) {
     std::size_t pos = 0;
     NodePtr parsed = read_node(text, pos, format, 0);
     if (pos != text.size()) {
@@ -623,32 +592,28 @@ BinarySearchTree<K, V> BinarySearchTree<K, V>::from_string(const std::string& te
     }
 
     if (!is_balanced(result.root)) {
-        // Те же узлы перевязываются в сбалансированное дерево, элементы не копируются
         DynamicArray<NodePtr> sorted(result.get_count());
         int index = 0;
         auto walker = result.walk();
-        while (ReadOnlyNode node = walker.next()) sorted.set(index++, node.node);
+        while (ReadOnlyNode node = walker.next())
+            sorted.set(index++, node.node);
         result.root = build_balanced(sorted, 0, sorted.get_size());
     }
     return result;
 }
 
-// ---------- IEnumerable ----------
-
 template <class K, class V>
 UnqPtr<IEnumerator<TreeEntry<K, V>>> BinarySearchTree<K, V>::get_enumerator() const {
-    return get_enumerator(DepthFirst());
+    return get_enumerator<DFS>();
 }
 
 template <class K, class V>
-template <class Traversal>
+template <template <class> class Traversal, class... Args>
 UnqPtr<IEnumerator<TreeEntry<K, V>>>
-BinarySearchTree<K, V>::get_enumerator(const Traversal& traversal) const {
-    return UnqPtr<TraversalEnumerator<Traversal>>::make(walk(traversal),
-                                                        current_generation());
+BinarySearchTree<K, V>::get_enumerator(const Args&... args) const {
+    using Enumerator = TraversalEnumerator<Traversal<ReadOnlyNode>>;
+    return UnqPtr<Enumerator>::make(walk<Traversal>(args...), current_generation());
 }
-
-// ---------- Операторы ----------
 
 template <class K, class V>
 const TreeEntry<K, V>& BinarySearchTree<K, V>::operator[](int index) const {
