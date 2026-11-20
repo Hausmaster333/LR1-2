@@ -1,6 +1,7 @@
 #ifndef BENCHMARK_PANEL_H
 #define BENCHMARK_PANEL_H
 
+#include "bench/benchmark_run.h"
 #include "bench/vfs_benchmark.h"
 #include "imgui.h"
 #include "implot.h"
@@ -10,7 +11,7 @@
 
 class BenchmarkPanel {
     private:
-        BackgroundBenchmark<Params, SizeResult> run;
+        BenchmarkRun<Params, SizeResult> run;
         int max_exponent = 6;
 
         char csv_path[256] = "lr2/benchmarks/results.csv";

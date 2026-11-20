@@ -248,6 +248,7 @@ bool BinarySearchTree<K, V>::same_structure(const NodePtr& first, const NodePtr&
         && same_structure(first->left, second->left)
         && same_structure(first->right, second->right);
 }
+
 template <class K, class V>
 typename BinarySearchTree<K, V>::NodePtr
 BinarySearchTree<K, V>::build_balanced(const DynamicArray<NodePtr>& sorted, int begin, int end) {
@@ -417,13 +418,15 @@ DynamicArray<TreeEntry<K, V>> BinarySearchTree<K, V>::to_array(const Args&... ar
     DynamicArray<Entry> result(get_count());
     int index = 0;
     auto walker = walk<Traversal>(args...);
-    while (ReadOnlyNode node = walker.next()) result.set(index++, node.value());
-    if (index < result.get_size()) result.resize(index);
+    while (ReadOnlyNode node = walker.next())
+        result.set(index++, node.value());
+    if (index < result.get_size())
+        result.resize(index);
     return result;
 }
 
 template <class K, class V>
-void BinarySearchTree<K, V>::write_node(const NodePtr& node, const TraversalFormat& format, std::string& out) {
+void BinarySearchTree<K, V>::write_subtree(const NodePtr& node, const TraversalFormat& format, std::string& out) {
     if (!node) return;
 
     const TraversalOrder& order = format.get_order();
@@ -433,7 +436,7 @@ void BinarySearchTree<K, V>::write_node(const NodePtr& node, const TraversalForm
         if (part == TreePart::Root) {
             out += format.escape(ValueCodec<Entry>::to_string(node->value));
         } else {
-            write_node(part == TreePart::Left ? node->left : node->right, format, out);
+            write_subtree(part == TreePart::Left ? node->left : node->right, format, out);
         }
         out += format.get_literal(index + 1);
     }
@@ -442,13 +445,13 @@ void BinarySearchTree<K, V>::write_node(const NodePtr& node, const TraversalForm
 template <class K, class V>
 std::string BinarySearchTree<K, V>::to_string(const TraversalFormat& format) const {
     std::string result;
-    write_node(root, format, result);
+    write_subtree(root, format, result);
     return result;
 }
 
 template <class K, class V>
 typename BinarySearchTree<K, V>::NodePtr
-BinarySearchTree<K, V>::read_node(const std::string& text, std::size_t& pos, const TraversalFormat& format, int depth) {
+BinarySearchTree<K, V>::read_subtree(const std::string& text, std::size_t& pos, const TraversalFormat& format, int depth) {
     if (!format.literal_at(text, pos, 0)) return {};
     if (depth > MAX_PARSE_DEPTH) throw std::length_error("Tree in string is too deep");
     pos += format.get_literal(0).size();
@@ -462,14 +465,13 @@ BinarySearchTree<K, V>::read_node(const std::string& text, std::size_t& pos, con
         if (part == TreePart::Root) {
             value = Option<Entry>::Some(ValueCodec<Entry>::from_string(format.read_value(text, pos)));
         } else if (part == TreePart::Left) {
-            left = read_node(text, pos, format, depth + 1);
+            left = read_subtree(text, pos, format, depth + 1);
         } else {
-            right = read_node(text, pos, format, depth + 1);
+            right = read_subtree(text, pos, format, depth + 1);
         }
 
         if (!format.literal_at(text, pos, index + 1)) {
-            throw std::invalid_argument("Expected '" + format.get_literal(index + 1)
-                                        + "' at position " + std::to_string(pos));
+            throw std::invalid_argument("Expected '" + format.get_literal(index + 1) + "' at position " + std::to_string(pos));
         }
         pos += format.get_literal(index + 1).size();
     }
@@ -492,7 +494,7 @@ bool BinarySearchTree<K, V>::is_balanced(const NodePtr& node) {
 template <class K, class V>
 BinarySearchTree<K, V> BinarySearchTree<K, V>::from_string(const std::string& text, const TraversalFormat& format) {
     std::size_t pos = 0;
-    NodePtr parsed = read_node(text, pos, format, 0);
+    NodePtr parsed = read_subtree(text, pos, format, 0);
     if (pos != text.size()) {
         throw std::invalid_argument("Unexpected symbol at position " + std::to_string(pos));
     }

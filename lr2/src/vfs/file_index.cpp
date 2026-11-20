@@ -47,7 +47,7 @@ void FileIndex::remove(const File& file) {
     remove_from(by_extension, extension_of(file.get_name()), file);
 }
 
-void FileIndex::rename(const FilePtr& file, const std::string& old_name) {
+void FileIndex::reindex_after_rename(const FilePtr& file, const std::string& old_name) {
     remove_from(by_name, old_name, *file);
     remove_from(by_extension, extension_of(old_name), *file);
     add(file);

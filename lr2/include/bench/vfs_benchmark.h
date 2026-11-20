@@ -4,7 +4,6 @@
 #include "bench/process_memory.h"
 #include "vfs/virtual_file_system.h"
 #include <algorithm>
-#include "bench/background_benchmark.h"
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -64,8 +63,7 @@ inline std::string file_name(long long number) {
     return buffer;
 }
 
-inline SizeResult measure(long long size, const Params& params,
-                          const std::shared_future<void>& stop = {}) {
+inline SizeResult measure(long long size, const Params& params) {
     if (size <= 0 || size > 100000000LL) throw std::invalid_argument("Bad benchmark size");
 
     int count = static_cast<int>(size);
@@ -91,7 +89,6 @@ inline SizeResult measure(long long size, const Params& params,
         if (kind == ASCENDING && memory_before != 0 && memory_after > memory_before) {
             result.index_memory_mb = (memory_after - memory_before) / (1024.0 * 1024.0);
         }
-        if (ready(stop)) return result;
     }
     files.clear();
 
@@ -108,7 +105,6 @@ inline SizeResult measure(long long size, const Params& params,
     for (int number = 0; number < count; number++) {
         vfs.add_file(directories[number % directories.size()], file_name(number), UnqPtr<GeneratedSource>::make());
     }
-    if (ready(stop)) return result;
 
     std::uniform_int_distribution<int> any_file(0, count - 1);
     auto average_search_ms = [&](SearchMethod method, int queries) {

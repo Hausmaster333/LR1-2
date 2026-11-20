@@ -80,8 +80,8 @@ class BinarySearchTree : public ICollection<TreeEntry<K, V>>, public IEnumerable
         static bool same_structure(const NodePtr& first, const NodePtr& second);
         static NodePtr build_balanced(const DynamicArray<NodePtr>& sorted, int begin, int end);
 
-        static void write_node(const NodePtr& node, const TraversalFormat& format, std::string& out);
-        static NodePtr read_node(const std::string& text, std::size_t& pos, const TraversalFormat& format, int depth);
+        static void write_subtree(const NodePtr& node, const TraversalFormat& format, std::string& out);
+        static NodePtr read_subtree(const std::string& text, std::size_t& pos, const TraversalFormat& format, int depth);
         static bool is_balanced(const NodePtr& node);
 
         template <class F>

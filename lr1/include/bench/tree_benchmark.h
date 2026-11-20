@@ -4,7 +4,6 @@
 #include "bench/process_memory.h"
 #include "tree/bst.h"
 #include <algorithm>
-#include "bench/background_benchmark.h"
 #include <chrono>
 #include <cmath>
 #include <cstdio>
@@ -67,7 +66,7 @@ inline void keep(long long value) {
     sink = value;
 }
 
-inline SizeResult measure(long long size, const Params& params, const std::shared_future<void>& stop = {}) {
+inline SizeResult measure(long long size, const Params& params) {
     if (size <= 0 || size > 2000000000LL) throw std::invalid_argument("Bad benchmark size");
 
     int count = static_cast<int>(size);
@@ -89,7 +88,6 @@ inline SizeResult measure(long long size, const Params& params, const std::share
         if (memory_before != 0 && memory_after > memory_before) {
             result.tree_memory_mb = (memory_after - memory_before) / (1024.0 * 1024.0);
         }
-        if (ready(stop)) return result;
 
         result.tree_ms[FIND] = time_ms([&] {
             long long found = 0;
@@ -102,7 +100,6 @@ inline SizeResult measure(long long size, const Params& params, const std::share
             while (iter->move_next()) sum += iter->get_current();
             keep(sum);
         });
-        if (ready(stop)) return result;
 
         if (size <= params.serialize_limit) {
             result.tree_ms[SERIALIZE] = time_ms([&] {
@@ -110,12 +107,11 @@ inline SizeResult measure(long long size, const Params& params, const std::share
                 keep(BinarySearchTree<int>::from_string(text).get_count());
             });
         }
-        if (ready(stop)) return result;
 
         result.tree_ms[REMOVE] = time_ms([&] { for (int key : lookups) tree.remove(key); });
     }
 
-    if (!params.compare_with_set || ready(stop)) return result;
+    if (!params.compare_with_set) return result;
 
     std::set<int> reference;
     result.set_ms[INSERT] = time_ms([&] { for (int key : keys) reference.insert(key); });

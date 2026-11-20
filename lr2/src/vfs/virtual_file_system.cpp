@@ -184,7 +184,7 @@ void VirtualFileSystem::rename(const std::string& path, const std::string& new_n
     node->get_parent()->rename_child(old_name, new_name);
     // Индекс хранит файлы, а не пути: перемещение его не трогает, переименование файла - да
     if (!node->is_directory() && old_name != new_name) {
-        index.rename(static_pointer_cast<const File>(node), old_name);
+        index.reindex_after_rename(static_pointer_cast<const File>(node), old_name);
     }
 }
 

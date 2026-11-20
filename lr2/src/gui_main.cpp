@@ -131,7 +131,7 @@ int main() {
     ImGui_ImplOpenGL3_Init("#version 130");
 
     {
-        App app; // Разрушается до DestroyContext: поток бенчмарков успевает остановиться
+        App app;
         while (!glfwWindowShouldClose(window)) {
             glfwPollEvents();
             ImGui_ImplOpenGL3_NewFrame();

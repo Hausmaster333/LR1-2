@@ -61,7 +61,6 @@ void Directory::rename_child(const std::string& old_name, const std::string& new
     add_child(std::move(child));
 }
 
-// Файлы создаются и в фоновом потоке бенчмарка, поэтому счётчик атомарный
 static std::atomic<std::uint64_t> next_file_id{0};
 
 File::File(const std::string& name, UnqPtr<IContentSource> content)

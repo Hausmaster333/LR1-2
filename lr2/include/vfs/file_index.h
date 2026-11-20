@@ -38,7 +38,7 @@ class FileIndex {
     public:
         void add(const FilePtr& file);
         void remove(const File& file);
-        void rename(const FilePtr& file, const std::string& old_name);
+        void reindex_after_rename(const FilePtr& file, const std::string& old_name);
         void add_subtree(const ShrdPtr<const FsNode>& node);
         void remove_subtree(const ShrdPtr<const FsNode>& node);
 
