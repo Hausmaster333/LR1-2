@@ -51,7 +51,8 @@ vpath %.cpp vendor/imgui vendor/implot
 clean:
 	$(call remove_dir,$(OUT))
 all: gui benchmark $(OUT)/tests$(EXT)
-gui: $(OUT)/gui$(EXT)
+GUI_NAME := $(if $(filter 2,$(LAB)),vfs,gui)
+gui: $(OUT)/$(GUI_NAME)$(EXT)
 benchmark: $(OUT)/benchmark$(EXT)
 test: $(OUT)/tests$(EXT)
 	$(OUT)/tests$(EXT)
@@ -73,6 +74,6 @@ $(OUT)/tests$(EXT): $(TESTS) $(SRC) $(GTEST_OBJ) $(HEADERS) | $(OUT)
 $(OUT)/benchmark$(EXT): $(DIR)/benchmarks/benchmark_main.cpp $(SRC) $(HEADERS) | $(OUT)
 	$(CXX) $(FLAGS) -O2 -DNDEBUG $< $(SRC) -o $@ $(LIBS)
 
-$(OUT)/gui$(EXT): $(DIR)/src/gui_main.cpp $(SRC) $(GUI_OBJ) $(HEADERS) | $(OUT)
+$(OUT)/$(GUI_NAME)$(EXT): $(DIR)/src/gui_main.cpp $(SRC) $(GUI_OBJ) $(HEADERS) | $(OUT)
 	$(CXX) $(FLAGS) -O2 $(GUI_FLAGS) $< $(SRC) $(GUI_OBJ) -o $@ $(GUI_LIBS) $(LIBS)
 endif

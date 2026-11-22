@@ -71,10 +71,10 @@ inline SizeResult measure(long long size, const Params& params) {
     SizeResult result;
     result.size = size;
 
-    ArraySequence<ShrdPtr<File>> files;
+    ArraySequence<ShrdPtr<RegularFile>> files;
     files.reserve(count);
     for (int number = 0; number < count; number++) {
-        files.push_back(ShrdPtr<File>::make(file_name(number), UnqPtr<GeneratedSource>::make()));
+        files.push_back(ShrdPtr<RegularFile>::make(file_name(number), UnqPtr<GeneratedSource>::make()));
     }
     ArraySequence<int> order(count);
     for (int kind = 0; kind < ORDER_COUNT; kind++) {

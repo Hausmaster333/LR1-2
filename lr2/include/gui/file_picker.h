@@ -8,7 +8,6 @@
 #include <system_error>
 #include "core/array_sequence.h"
 
-// Окно выбора реального файла или папки на std::filesystem. Пути в UTF-8, кириллица работает.
 class FilePicker {
     public:
         enum class Mode { File, Folder };
@@ -22,11 +21,10 @@ class FilePicker {
         bool open_requested = false;
         std::filesystem::path current;
         ArraySequence<Entry> entries;
-        std::string selected; // Имя выбранного файла в current
+        std::string selected;
         std::string error;
         char path_input[1024] = "";
 
-        // Перечитывает current: сначала папки, потом файлы, по алфавиту
         void load(const std::filesystem::path& path) {
             namespace fs = std::filesystem;
             std::error_code code;
@@ -66,7 +64,6 @@ class FilePicker {
 #endif
         }
     public:
-        // Открыть окно; результат вернёт draw, когда пользователь выберет
         void open(Mode new_mode) {
             mode = new_mode;
             open_requested = true;
@@ -74,7 +71,6 @@ class FilePicker {
             load(current.empty() ? std::filesystem::current_path(code) : current);
         }
 
-        // true - выбор сделан, путь в UTF-8 в chosen
         bool draw(std::string& chosen) {
             const char* title = mode == Mode::File ? "Выбор файла###picker" : "Выбор папки###picker";
             if (open_requested) {
@@ -111,7 +107,7 @@ class FilePicker {
                 }
             }
             ImGui::EndChild();
-            if (!open_next.empty()) load(open_next); // Не посреди цикла: load меняет entries
+            if (!open_next.empty()) load(open_next);
 
             if (mode == Mode::File) {
                 ImGui::BeginDisabled(selected.empty());

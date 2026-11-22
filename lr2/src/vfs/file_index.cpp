@@ -19,9 +19,9 @@ void FileIndex::add_to(Index& index, const std::string& key, const FilePtr& file
     index.get(key)->add(FileRef{file->get_id(), file});
 }
 
-void FileIndex::remove_from(Index& index, const std::string& key, const File& file) {
+void FileIndex::remove_from(Index& index, const std::string& key, const RegularFile& file) {
     auto& files = *index.get(key);
-    files.remove(FileRef{file.get_id(), WeakPtr<const File>()});
+    files.remove(FileRef{file.get_id(), WeakPtr<const RegularFile>()});
     if (files.get_count() == 0) index.remove(key);
 }
 
@@ -42,7 +42,7 @@ void FileIndex::add(const FilePtr& file) {
     add_to(by_extension, extension_of(file->get_name()), file);
 }
 
-void FileIndex::remove(const File& file) {
+void FileIndex::remove(const RegularFile& file) {
     remove_from(by_name, file.get_name(), file);
     remove_from(by_extension, extension_of(file.get_name()), file);
 }
@@ -53,21 +53,23 @@ void FileIndex::reindex_after_rename(const FilePtr& file, const std::string& old
     add(file);
 }
 
-void FileIndex::add_subtree(const ShrdPtr<const FsNode>& node) {
+void FileIndex::add_subtree(const ShrdPtr<const File>& node) {
+    if (node->kind() == FileKind::Link) return;
     if (!node->is_directory()) {
-        add(static_pointer_cast<const File>(node));
+        add(static_pointer_cast<const RegularFile>(node));
         return;
     }
-    DynamicArray<ShrdPtr<const FsNode>> children = static_cast<const Directory&>(*node).list();
+    DynamicArray<ShrdPtr<const File>> children = static_cast<const Directory&>(*node).list();
     for (int index = 0; index < children.get_size(); index++) add_subtree(children.get(index));
 }
 
-void FileIndex::remove_subtree(const ShrdPtr<const FsNode>& node) {
+void FileIndex::remove_subtree(const ShrdPtr<const File>& node) {
+    if (node->kind() == FileKind::Link) return;
     if (!node->is_directory()) {
-        remove(static_cast<const File&>(*node));
+        remove(static_cast<const RegularFile&>(*node));
         return;
     }
-    DynamicArray<ShrdPtr<const FsNode>> children = static_cast<const Directory&>(*node).list();
+    DynamicArray<ShrdPtr<const File>> children = static_cast<const Directory&>(*node).list();
     for (int index = 0; index < children.get_size(); index++) remove_subtree(children.get(index));
 }
 

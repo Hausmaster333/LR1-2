@@ -3,6 +3,7 @@
 
 #include "bench/vfs_benchmark.h"
 #include "gui/file_picker.h"
+#include "gui/text_editor.h"
 #include "imgui.h"
 #include "vfs/virtual_file_system.h"
 #include <cstdio>
@@ -12,7 +13,7 @@
 namespace gui {
     const ImVec4 ERROR_COLOR(1.0f, 0.45f, 0.4f, 1.0f);
     const ImVec4 SUCCESS_COLOR(0.45f, 0.85f, 0.5f, 1.0f);
-    const char* const PATH_PAYLOAD = "VFS_PATH"; // Перетаскивание: путь узла
+    const char* const PATH_PAYLOAD = "VFS_PATH";
 
     // "/a" + "b" -> "/a/b", "/" + "b" -> "/b"
     inline std::string join_path(const std::string& directory, const std::string& name) {
@@ -37,7 +38,6 @@ namespace gui {
         return buffer;
     }
 
-    // Значок папки или файла высотой в строку текста
     inline void draw_icon(bool is_directory) {
         float size = ImGui::GetTextLineHeight();
         ImVec2 corner = ImGui::GetCursorScreenPos();
@@ -63,29 +63,26 @@ namespace gui {
     }
 }
 
-// Проводник: дерево каталогов, содержимое текущего каталога, предпросмотр и все операции ФС.
-// Операция за кадр откладывается до конца отрисовки: кэш содержимого держит сырые указатели
-// на узлы, и удалять узлы посреди отрисовки их строк нельзя.
 class ExplorerPanel {
     private:
         enum class Dialog { None, NewDirectory, Rename, Remove, Generate };
         enum class Pick { AttachFile, ImportFolder };
 
         VirtualFileSystem& vfs;
-        std::string current = "/"; // Текущий каталог
-        std::string selected; // Имя выбранного узла в текущем каталоге
-        DynamicArray<ShrdPtr<const FsNode>> entries; // Содержимое текущего каталога
-        bool stale = true; // entries и предпросмотр надо перечитать
-        bool scroll_to_selected = false; // Прокрутить таблицу к выбранному (после поиска)
-        bool changed = false; // В этом кадре ФС изменилась
+        TextEditor& editor;
+        std::string selected;
+        DynamicArray<ShrdPtr<const File>> entries; // Содержимое текущего каталога
+        bool stale = true;
+        bool scroll_to_selected = false;
+        bool changed = false;
 
-        std::function<void()> pending; // Отложенная операция
+        std::function<void()> pending;
         std::string pending_success;
         std::string message = "Добавьте реальные файлы или сгенерируйте тестовые";
         bool message_is_error = false;
 
         Dialog requested_dialog = Dialog::None;
-        std::string dialog_target; // Путь узла для переименования и удаления
+        std::string dialog_target;
         char name_input[256] = "";
         int generate_files = 100000;
         int generate_directories = 100;
@@ -93,16 +90,16 @@ class ExplorerPanel {
         FilePicker picker;
         Pick pick_purpose = Pick::AttachFile;
 
-        std::string preview_path; // Для какого файла прочитан предпросмотр
+        std::string preview_path;
         std::string preview_bytes;
 
         void go_to(const std::string& path) {
-            current = path;
+            try { vfs.change_directory(path); }
+            catch (const std::exception& e) { message = e.what(); message_is_error = true; return; }
             selected.clear();
             stale = true;
         }
 
-        // Запоминает операцию; выполнится в конце кадра
         void schedule(const std::string& success, std::function<void()> action) {
             pending = std::move(action);
             pending_success = success;
@@ -126,7 +123,7 @@ class ExplorerPanel {
         }
 
         void refresh() {
-            if (!vfs.exists(current) || !vfs.get(current).is_directory()) current = "/";
+            const std::string current = vfs.current_path();
             entries = vfs.list(current);
             const Directory& directory = static_cast<const Directory&>(vfs.get(current));
             if (!selected.empty() && !directory.find_child(selected)) selected.clear();
@@ -140,7 +137,6 @@ class ExplorerPanel {
             std::snprintf(name_input, sizeof(name_input), "%s", initial_name.c_str());
         }
 
-        // Узел можно перетащить; путь едет в payload
         void drag_source(const std::string& path, const std::string& name) {
             if (!ImGui::BeginDragDropSource()) return;
             ImGui::SetDragDropPayload(gui::PATH_PAYLOAD, path.c_str(), path.size() + 1);
@@ -148,7 +144,6 @@ class ExplorerPanel {
             ImGui::EndDragDropSource();
         }
 
-        // На каталог можно бросить узел - он туда переместится
         void drop_target(const std::string& directory_path) {
             if (!ImGui::BeginDragDropTarget()) return;
             if (const ImGuiPayload* payload = ImGui::AcceptDragDropPayload(gui::PATH_PAYLOAD)) {
@@ -160,6 +155,7 @@ class ExplorerPanel {
         }
 
         void draw_toolbar() {
+            const std::string current = vfs.current_path();
             ImGui::BeginDisabled(current == "/");
             if (ImGui::Button("Вверх")) go_to(gui::parent_path(current));
             ImGui::EndDisabled();
@@ -178,7 +174,6 @@ class ExplorerPanel {
             ImGui::SameLine();
             if (ImGui::Button("Генератор...")) open_dialog(Dialog::Generate, current, "");
 
-            // Хлебные крошки: каждый уровень пути - кнопка, на неё можно бросить узел
             ImGui::SameLine(0, 24);
             if (ImGui::Button("/")) go_to("/");
             drop_target("/");
@@ -199,12 +194,14 @@ class ExplorerPanel {
         }
 
         void draw_tree(const Directory& directory) {
+            const std::string current = vfs.current_path();
             std::string path = directory.get_path();
 
             ImGuiTreeNodeFlags flags = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_OpenOnDoubleClick
                                      | ImGuiTreeNodeFlags_SpanAvailWidth;
             if (path == current) flags |= ImGuiTreeNodeFlags_Selected;
-            if (!directory.has_subdirectories()) flags |= ImGuiTreeNodeFlags_Leaf;
+            const bool leaf = !directory.has_subdirectories();
+            if (leaf) flags |= ImGuiTreeNodeFlags_Leaf | ImGuiTreeNodeFlags_NoTreePushOnOpen;
             if (path == "/") ImGui::SetNextItemOpen(true, ImGuiCond_Once);
 
             const char* label = path == "/" ? "/ (корень)" : directory.get_name().c_str();
@@ -212,27 +209,28 @@ class ExplorerPanel {
             if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) go_to(path);
             if (path != "/") drag_source(path, directory.get_name());
             drop_target(path);
-            if (!open) return;
+            if (!open || leaf) return;
 
-            DynamicArray<ShrdPtr<const FsNode>> children = directory.list(); // Только у раскрытых узлов
+            DynamicArray<ShrdPtr<const File>> children = directory.list();
             for (int position = 0; position < children.get_size(); position++) {
-                const ShrdPtr<const FsNode>& child = children.get(position);
-                if (!child->is_directory()) break; // Каталоги идут первыми
+                const ShrdPtr<const File>& child = children.get(position);
+                if (!child->is_directory()) break;
                 draw_tree(static_cast<const Directory&>(*child));
             }
             ImGui::TreePop();
         }
 
-        void draw_context_menu(const FsNode& node, const std::string& path) {
+        void draw_context_menu(const File& node, const std::string& path) {
             if (!ImGui::BeginPopupContextItem("##node_menu")) return;
             selected = node.get_name();
-            if (node.is_directory() && ImGui::MenuItem("Открыть")) go_to(path);
+            if (node.kind() != FileKind::Regular && ImGui::MenuItem("Открыть")) go_to(path);
             if (ImGui::MenuItem("Переименовать")) open_dialog(Dialog::Rename, path, node.get_name());
             if (ImGui::MenuItem("Удалить")) open_dialog(Dialog::Remove, path, node.get_name());
             ImGui::EndPopup();
         }
 
         void draw_table() {
+            const std::string current = vfs.current_path();
             ImGuiTableFlags flags = ImGuiTableFlags_RowBg | ImGuiTableFlags_BordersInnerV
                                   | ImGuiTableFlags_Resizable | ImGuiTableFlags_ScrollY;
             if (!ImGui::BeginTable("##entries", 3, flags)) return;
@@ -262,7 +260,6 @@ class ExplorerPanel {
                 scroll_to_selected = false;
             }
 
-            // Отрисовываются только видимые строки: в каталоге могут быть десятки тысяч файлов
             ImGuiListClipper clipper;
             clipper.Begin(entries.get_size());
             if (target >= 0) clipper.IncludeItemByIndex(target);
@@ -276,16 +273,23 @@ class ExplorerPanel {
         }
 
         void draw_row(int row) {
-            const FsNode& node = *entries.get(row);
-            std::string path = gui::join_path(current, node.get_name());
+            const File& node = *entries.get(row);
+            std::string path = node.get_path();
             ImGui::PushID(row);
             ImGui::TableNextRow();
             ImGui::TableNextColumn();
             gui::draw_icon(node.is_directory());
-            if (ImGui::Selectable(node.get_name().c_str(), node.get_name() == selected,
+            std::string label = (node.kind() == FileKind::Link ? "→ " : "") + node.get_name();
+            if (ImGui::Selectable(label.c_str(), node.get_name() == selected,
                                   ImGuiSelectableFlags_SpanAllColumns | ImGuiSelectableFlags_AllowDoubleClick)) {
                 selected = node.get_name();
-                if (node.is_directory() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) go_to(path);
+                if (ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
+                    if (node.kind() != FileKind::Regular) go_to(path);
+                    else {
+                        try { editor.open(vfs, path); }
+                        catch (const std::exception& e) { message = e.what(); message_is_error = true; }
+                    }
+                }
             }
             drag_source(path, node.get_name());
             if (node.is_directory()) drop_target(path);
@@ -295,7 +299,14 @@ class ExplorerPanel {
             if (node.is_directory()) {
                 ImGui::TextDisabled("%d элем.", static_cast<const Directory&>(node).get_child_count());
             } else {
-                const IContentSource& content = static_cast<const File&>(node).get_content();
+                if (node.kind() == FileKind::Link) {
+                    ImGui::TextDisabled("Ссылка");
+                    ImGui::TableNextColumn();
+                    ImGui::TextUnformatted(static_cast<const DirectoryLink&>(node).target_path().c_str());
+                    ImGui::PopID();
+                    return;
+                }
+                const IContentSource& content = static_cast<const RegularFile&>(node).get_content();
                 ImGui::TextUnformatted(gui::format_size(content.get_size()).c_str());
                 ImGui::TableNextColumn();
                 ImGui::TextDisabled("%s", content.get_location().c_str());
@@ -304,8 +315,9 @@ class ExplorerPanel {
         }
 
         void draw_preview() {
-            if (stale) return; // Каталог сменился в этом кадре
-            ShrdPtr<const FsNode> node = selected.empty() ? ShrdPtr<const FsNode>()
+            const std::string current = vfs.current_path();
+            if (stale) return;
+            ShrdPtr<const File> node = selected.empty() ? ShrdPtr<const File>()
                                        : static_cast<const Directory&>(vfs.get(current)).find_child(selected);
             if (!node) {
                 ImGui::TextDisabled("Выберите файл или каталог");
@@ -321,20 +333,23 @@ class ExplorerPanel {
                 return;
             }
 
-            const IContentSource& content = static_cast<const File&>(*node).get_content();
+            if (node->kind() == FileKind::Link) {
+                ImGui::TextWrapped("Ссылка на каталог: %s", static_cast<const DirectoryLink&>(*node).target_path().c_str());
+                return;
+            }
+            const IContentSource& content = static_cast<const RegularFile&>(*node).get_content();
             ImGui::Text("Размер: %s", gui::format_size(content.get_size()).c_str());
-            ImGui::TextDisabled("Данные:");
-            ImGui::TextWrapped("%s", content.get_location().c_str());
+            const std::string location = content.get_location();
+            if (!location.empty()) ImGui::TextWrapped("Источник: %s", location.c_str());
             ImGui::Separator();
 
-            if (preview_path != path) { // Диск читается один раз при выборе файла, а не каждый кадр
+            if (preview_path != path) {
                 preview_path = path;
                 preview_bytes = content.read_beginning(4096);
             }
             draw_bytes(preview_bytes);
         }
 
-        // Текст как есть, двоичные данные - шестнадцатеричным дампом
         static void draw_bytes(const std::string& bytes) {
             if (bytes.empty()) {
                 ImGui::TextDisabled("Нет данных для просмотра");
@@ -361,7 +376,6 @@ class ExplorerPanel {
             ImGui::EndChild();
         }
 
-        // Тестовые данные: каталог /generated_k с подкаталогами, файлы разложены поровну подряд
         void generate() {
             std::string root = "/generated";
             for (int number = 2; vfs.exists(root); number++) root = "/generated_" + std::to_string(number);
@@ -389,7 +403,6 @@ class ExplorerPanel {
             go_to(root);
         }
 
-        // Поле имени с кнопками; true - пользователь нажал OK или Enter
         bool name_prompt(const char* button) {
             if (ImGui::IsWindowAppearing()) ImGui::SetKeyboardFocusHere();
             bool confirmed = ImGui::InputText("##name", name_input, sizeof(name_input),
@@ -402,6 +415,7 @@ class ExplorerPanel {
         }
 
         void draw_dialogs() {
+            const std::string current = vfs.current_path();
             const char* titles[] = {"", "Новый каталог", "Переименовать", "Удалить", "Генератор тестовых данных"};
             if (requested_dialog != Dialog::None) {
                 ImGui::OpenPopup(titles[static_cast<int>(requested_dialog)]);
@@ -468,17 +482,21 @@ class ExplorerPanel {
             }
         }
     public:
-        explicit ExplorerPanel(VirtualFileSystem& vfs) : vfs(vfs) {}
+        ExplorerPanel(VirtualFileSystem& vfs, TextEditor& editor) : vfs(vfs), editor(editor) {}
 
-        // Показать файл или каталог по пути: перейти в его каталог и выделить
+        void invalidate(bool navigated) {
+            stale = true;
+            if (navigated) selected.clear();
+        }
+
         void reveal(const std::string& path) {
             go_to(gui::parent_path(path));
             selected = path.substr(path.rfind('/') + 1);
             scroll_to_selected = true;
         }
 
-        // true - в этом кадре ФС изменилась (найденные файлы могли пропасть)
         bool draw() {
+            const std::string current = vfs.current_path();
             changed = false;
             if (stale) refresh();
             draw_toolbar();

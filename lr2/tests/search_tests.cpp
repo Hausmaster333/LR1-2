@@ -9,32 +9,26 @@
 
 namespace fs = std::filesystem;
 
-namespace {
-    // Пути найденных файлов, отсортированные: порядок результатов не гарантирован
-    ArraySequence<std::string> paths(const DynamicArray<ShrdPtr<const File>>& files) {
-        ArraySequence<std::string> result;
-        for (int index = 0; index < files.get_size(); index++) {
-            result.push_back(files.get(index)->get_path());
-        }
-        std::sort(result.begin(), result.end());
-        return result;
-    }
 
-    // Все каталоги ФС, начиная с корня
-    void collect_directories(const VirtualFileSystem& vfs, const std::string& path,
-                             ArraySequence<std::string>& out) {
-        out.push_back(path);
-        DynamicArray<ShrdPtr<const FsNode>> children = vfs.list(path);
-        for (int index = 0; index < children.get_size(); index++) {
-            if (children.get(index)->is_directory()) {
-                collect_directories(vfs, children.get(index)->get_path(), out);
-            }
+ArraySequence<std::string> paths(const DynamicArray<ShrdPtr<const RegularFile>>& files) {
+    ArraySequence<std::string> result;
+    for (int index = 0; index < files.get_size(); index++) {
+        result.push_back(files.get(index)->get_path());
+    }
+    std::sort(result.begin(), result.end());
+    return result;
+}
+
+void collect_directories(const VirtualFileSystem& vfs, const std::string& path, ArraySequence<std::string>& out) {
+    out.push_back(path);
+    DynamicArray<ShrdPtr<const File>> children = vfs.list(path);
+    for (int index = 0; index < children.get_size(); index++) {
+        if (children.get(index)->is_directory()) {
+            collect_directories(vfs, children.get(index)->get_path(), out);
         }
     }
 }
 
-// Временная папка с настоящими файлами one.txt, data/two.txt, data/inner/three.LOG.
-// find() ищет и обходом, и по индексу: любое расхождение индекса с ФС - ошибка теста.
 class SearchTest : public ::testing::Test {
     protected:
         fs::path real_dir;
@@ -52,7 +46,6 @@ class SearchTest : public ::testing::Test {
 
         void TearDown() override { fs::remove_all(real_dir); }
 
-        // Для поиска важно только имя, поэтому все виртуальные файлы смотрят на one.txt
         void attach(const std::string& directory, const std::string& name) {
             vfs.attach_file((real_dir / "one.txt").u8string(), directory, name);
         }
@@ -74,7 +67,7 @@ TEST_F(SearchTest, ByNameFindsFilesInAllDirectories) {
 
     EXPECT_EQ(find(SearchField::Name, "report.txt"),
               (ArraySequence<std::string>{"/a/b/report.txt", "/report.txt"}));
-    EXPECT_TRUE(find(SearchField::Name, "Report.txt").empty()); // Имя - с учётом регистра
+    EXPECT_TRUE(find(SearchField::Name, "Report.txt").empty());
     EXPECT_TRUE(find(SearchField::Name, "missing").empty());
 }
 
@@ -87,7 +80,6 @@ TEST_F(SearchTest, ByExtensionIgnoresCaseAndDot) {
     }
 }
 
-// У ".hidden" нет расширения: точка в начале - часть имени
 TEST_F(SearchTest, EmptyExtensionFindsFilesWithoutIt) {
     attach("/", "b.txt");
     attach("/", "noext");
@@ -107,7 +99,6 @@ TEST_F(SearchTest, IndexFollowsRename) {
     EXPECT_EQ(find(SearchField::Extension, "log").size(), 2u);
 }
 
-// Индекс хранит сами файлы, а путь файл считает заново, поэтому move индекс не трогает
 TEST_F(SearchTest, IndexFollowsMove) {
     vfs.import_directory((real_dir / "data").u8string(), "/");
     vfs.make_directory("/moved");
@@ -118,12 +109,11 @@ TEST_F(SearchTest, IndexFollowsMove) {
 TEST_F(SearchTest, IndexFollowsRemove) {
     vfs.import_directory((real_dir / "data").u8string(), "/");
     vfs.rename("/data/two.txt", "renamed.log");
-    vfs.remove("/data/inner"); // Каталог целиком: файл внутри тоже уходит из индекса
+    vfs.remove("/data/inner");
     vfs.remove("/data/renamed.log");
     EXPECT_TRUE(find(SearchField::Extension, "log").empty());
 }
 
-// 400 случайных операций; после каждой find() сверяет индекс с полным обходом
 TEST_F(SearchTest, IndexMatchesFullScanAfterRandomOperations) {
     const char* names[] = {"a.txt", "b.TXT", "c.log", "noext", "a.log"};
     std::mt19937 random(11);
@@ -135,7 +125,6 @@ TEST_F(SearchTest, IndexMatchesFullScanAfterRandomOperations) {
         std::string directory = directories[pick(directories.size())];
         std::string name = names[pick(5)];
 
-        // Все файлы ФС: у каждого из них расширение txt, log или пустое
         ArraySequence<std::string> files = paths(vfs.find_files(SearchField::Extension, "txt", SearchMethod::FullScan));
         ArraySequence<std::string> logs = paths(vfs.find_files(SearchField::Extension, "log", SearchMethod::FullScan));
         for (const auto& path : logs) files.push_back(path);
@@ -143,14 +132,12 @@ TEST_F(SearchTest, IndexMatchesFullScanAfterRandomOperations) {
         try {
             switch (pick(6)) {
                 case 0: vfs.make_directory(directory + "/d" + std::to_string(step)); break;
-                case 1: case 2: attach(directory, name); break; // Файлы добавляем вдвое чаще
+                case 1: case 2: attach(directory, name); break;
                 case 3: if (!files.empty()) vfs.rename(files[pick(files.size())], name); break;
                 case 4: if (!files.empty()) vfs.move(files[pick(files.size())], directory); break;
                 case 5: if (directories.size() > 1) vfs.remove(directories[1 + pick(directories.size() - 1)]); break;
             }
-        } catch (const std::invalid_argument&) {
-            // Имя занято или каталог в самого себя - ФС не изменилась, это тоже проверяется
-        }
+        } catch (const std::invalid_argument&) {}
 
         for (const char* query : names) find(SearchField::Name, query);
         for (const char* query : {"txt", "log", ""}) find(SearchField::Extension, query);

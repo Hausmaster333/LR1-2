@@ -19,6 +19,19 @@ std::string RealFileSource::read_beginning(std::size_t max_bytes) const {
     return data;
 }
 
+std::string RealFileSource::read_all() const {
+    std::ifstream file(std::filesystem::u8path(real_path), std::ios::binary);
+    if (!file) throw std::runtime_error("Не удалось открыть файл: " + real_path);
+    std::string data;
+    char block[8192];
+    do {
+        file.read(block, sizeof(block));
+        data.append(block, static_cast<std::size_t>(file.gcount()));
+    } while (file);
+    if (file.bad() || !file.eof()) throw std::runtime_error("Ошибка чтения: " + real_path);
+    return data;
+}
+
 std::string RealFileSource::get_location() const {
     return real_path;
 }

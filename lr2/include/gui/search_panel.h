@@ -7,20 +7,16 @@
 #include "vfs/virtual_file_system.h"
 #include <string>
 
-// Поиск по имени или расширению сразу двумя способами - полным обходом и по индексу,
-// с замером времени каждого: разница видна на живых данных.
 class SearchPanel {
     private:
         const VirtualFileSystem& vfs;
         int field = 0; // 0 - имя, 1 - расширение
         char query[256] = "";
-        DynamicArray<ShrdPtr<const File>> found;
+        DynamicArray<ShrdPtr<const RegularFile>> found;
         bool searched = false;
         double scan_ms = 0;
         double index_ms = 0;
 
-        // Среднее время одного поиска: повторяем, пока не наберётся 20 мс, - иначе
-        // быстрый поиск по индексу упирается в точность часов
         double average_ms(SearchField search_field, SearchMethod method) {
             double total = 0;
             int runs = 0;
@@ -46,19 +42,17 @@ class SearchPanel {
             ImGui::Text("Индекс: %.2f мкс", index_ms * 1000);
             if (index_ms > 0) {
                 ImGui::SameLine(0, 30);
-                ImGui::TextColored(gui::SUCCESS_COLOR, "индекс быстрее в %.0f раз", scan_ms / index_ms);
+                ImGui::Text("Время обхода / время индекса = %.3g", scan_ms / index_ms);
             }
         }
     public:
         explicit SearchPanel(const VirtualFileSystem& vfs) : vfs(vfs) {}
 
-        // ФС изменилась: найденные указатели могли стать висячими
         void clear() {
-            found = DynamicArray<ShrdPtr<const File>>();
+            found = DynamicArray<ShrdPtr<const RegularFile>>();
             searched = false;
         }
 
-        // Возвращает путь файла, который надо показать в проводнике, или пустую строку
         std::string draw() {
             ImGui::RadioButton("по имени", &field, 0);
             ImGui::SameLine();
