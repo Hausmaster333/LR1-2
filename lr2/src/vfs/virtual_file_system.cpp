@@ -71,11 +71,11 @@ VirtualFileSystem::VirtualFileSystem(IFileSystemReader& reader)
     : root(Directory::create("")), current(root), reader(reader) {}
 
 ShrdPtr<File> VirtualFileSystem::find(const std::string& path, bool follow_last) const {
-    std::set<const File*> resolving;
+    TreeSet<std::string> resolving;
     return resolve(path, follow_last, resolving);
 }
 
-ShrdPtr<File> VirtualFileSystem::resolve(const std::string& path, bool follow_last, std::set<const File*>& resolving) const {
+ShrdPtr<File> VirtualFileSystem::resolve(const std::string& path, bool follow_last, TreeSet<std::string>& resolving) const {
     if (path.empty()) throw std::invalid_argument("Пустой путь");
     bool absolute = path.front() == '/';
     ShrdPtr<File> node = absolute ? root : current;
@@ -96,10 +96,11 @@ ShrdPtr<File> VirtualFileSystem::resolve(const std::string& path, bool follow_la
             if (node->kind() == FileKind::Link && (follow_last || path.find_first_not_of('/', end) != std::string::npos)) {
                 const auto& link = static_cast<const DirectoryLink&>(*node);
 
-                if (!resolving.insert(&link).second) throw std::invalid_argument("Цикл ссылок: " + link.get_path());
+                const std::string link_path = link.get_path();
+                if (!resolving.add(link_path)) throw std::invalid_argument("Цикл ссылок: " + link_path);
 
                 auto target = resolve(link.target_path(), true, resolving);
-                resolving.erase(&link);
+                resolving.remove(link_path);
 
                 if (!target || !target->is_directory()) throw std::invalid_argument("Цель ссылки недоступна: " + link.target_path());
                 node = target;
