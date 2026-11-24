@@ -9,20 +9,21 @@
 #include "vfs/file.h"
 #include <cstdint>
 #include <string>
+#include <optional>
 
-enum class SearchField { Name, Extension };
-enum class SearchMethod { FullScan, Index };
+struct SearchCriterion {
+    std::optional<std::string> (*extract)(const File&);
+    std::string (*normalize)(std::string) = nullptr;
 
-// Извлекает и нормализует расширение. У имени вида .gitignore оно пустое.
-std::string extension_of(const std::string& name);
-// Убирает начальную точку и переводит A–Z в нижний регистр.
-std::string normalize_extension(std::string extension);
+    bool operator==(const SearchCriterion& other) const {
+        return extract == other.extract && normalize == other.normalize;
+    }
+};
 
 struct FileRef {
     std::uint64_t id = 0;
-    WeakPtr<const RegularFile> file;
+    WeakPtr<const File> file;
 
-    // Различает одноимённые файлы в множестве по ID.
     bool operator<(const FileRef& other) const { return id < other.id; }
 };
 
@@ -30,31 +31,17 @@ class FileIndex {
     private:
         using Index = TreeDictionary<std::string, ShrdPtr<TreeSet<FileRef>>>;
 
-        Index by_name;
-        Index by_extension;
-
-        using FilePtr = ShrdPtr<const RegularFile>;
-
-        // Добавляет файл в группу по ключу, при необходимости создаёт её.
-        static void add_to(Index& index, const std::string& key, const FilePtr& file);
-        // Убирает файл по ID и удаляет опустевшую группу.
-        static void remove_from(Index& index, const std::string& key, const RegularFile& file);
-        // Собирает файлы одной группы. Для отсутствующего ключа результат пуст.
-        static DynamicArray<FilePtr> lookup(const Index& index, const std::string& key);
+        Index groups;
+        SearchCriterion field;
     public:
-        // Индексирует файл по имени и расширению.
-        void add(const FilePtr& file);
-        // Убирает файл из обоих индексов.
-        void remove(const RegularFile& file);
-        // Заменяет старые записи индекса после смены имени.
-        void reindex_after_rename(const FilePtr& file, const std::string& old_name);
-        // Индексирует обычные файлы поддерева, пропуская ссылки.
-        void add_subtree(const ShrdPtr<const File>& node);
-        // Убирает из индекса обычные файлы поддерева, пропуская ссылки.
-        void remove_subtree(const ShrdPtr<const File>& node);
-
-        // Возвращает группу совпадений из индекса имён или расширений.
-        DynamicArray<FilePtr> find(SearchField field, const std::string& value) const;
+        explicit FileIndex(SearchCriterion criterion) : field(criterion) {
+            if (!field.extract) throw std::invalid_argument("Не задан критерий индекса");
+        }
+        SearchCriterion criterion() const { return field; }
+        void add(const ShrdPtr<const File>& file);
+        void remove(const File& file);
+        void build(const ShrdPtr<const File>& root);
+        DynamicArray<ShrdPtr<const File>> find(const std::string& key) const;
 };
 
 #endif

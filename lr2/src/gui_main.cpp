@@ -9,6 +9,8 @@
 #include "implot.h"
 #include <GLFW/glfw3.h>
 #include <cstdio>
+#include <algorithm>
+#include <cmath>
 
 
 void load_font() {
@@ -20,7 +22,7 @@ void load_font() {
     for (const char* path : candidates) {
         if (std::FILE* file = std::fopen(path, "rb")) {
             std::fclose(file);
-            ImGui::GetIO().Fonts->AddFontFromFileTTF(path, 17.0f);
+            ImGui::GetIO().Fonts->AddFontFromFileTTF(path, 18.0f);
             return;
         }
     }
@@ -58,29 +60,30 @@ void apply_style() {
 }
 
 struct App {
-    VirtualFileSystem vfs;
+    ShrdPtr<VirtualFileSystem> vfs = ShrdPtr<VirtualFileSystem>::make();
+    FileSystemAccess terminal_access{vfs};
     TextEditor editor;
     ExplorerPanel explorer{vfs, editor};
     Terminal terminal;
     bool quitting = false;
 
     void poll_terminal() {
-        terminal.prompt(vfs.current_path());
+        terminal.prompt(terminal_access.current_path());
         std::string line;
         if (!terminal.poll_line(line)) return;
-        auto result = execute_command(vfs, line);
+        auto result = execute_command(terminal_access, line);
         if (!result.output.empty()) {
             auto& stream = result.failed ? std::cerr : std::cout;
             stream << result.output;
             if (result.output.back() != '\n') stream << '\n';
             stream.flush();
         }
-        if (result.changed || result.navigated) explorer.invalidate(result.navigated);
+        if (result.changed) explorer.invalidate(false);
         if (result.changed) search.clear();
         if (result.exit) quitting = true;
-        else terminal.prompt(vfs.current_path(), true);
+        else terminal.prompt(terminal_access.current_path(), true);
     }
-    SearchPanel search{vfs};
+    SearchPanel search{*vfs};
     BenchmarkPanel benchmarks;
     bool show_explorer = false;
 
@@ -113,7 +116,10 @@ struct App {
             }
             ImGui::EndTabBar();
         }
-        if (editor.draw(vfs, quitting)) explorer.invalidate(false);
+        if (editor.draw(*vfs, quitting)) {
+            explorer.invalidate(false);
+            search.clear();
+        }
         ImGui::End();
     }
 };
@@ -124,7 +130,26 @@ int main() {
         return 1;
     }
 
-    GLFWwindow* window = glfwCreateWindow(1500, 900, "ЛР-2: виртуальная файловая система", nullptr, nullptr);
+    int window_width = 1500;
+    int window_height = 900;
+    float default_scale = 1.0f;
+    if (GLFWmonitor* monitor = glfwGetPrimaryMonitor()) {
+        int work_x = 0;
+        int work_y = 0;
+        int work_width = 0;
+        int work_height = 0;
+        glfwGetMonitorWorkarea(monitor, &work_x, &work_y, &work_width, &work_height);
+        if (work_width > 0 && work_height > 0) {
+            const float desktop_scale = std::min(work_width / 1920.0f, work_height / 1080.0f);
+            default_scale = std::max({1.0f, ImGui_ImplGlfw_GetContentScaleForMonitor(monitor),
+                                      std::round(desktop_scale * 4) / 4});
+            window_width = std::min(static_cast<int>(window_width * default_scale), work_width * 9 / 10);
+            window_height = std::min(static_cast<int>(window_height * default_scale), work_height * 9 / 10);
+        }
+    }
+
+    GLFWwindow* window = glfwCreateWindow(window_width, window_height, "ВФС", nullptr, nullptr);
+
     if (window == nullptr) {
         std::fprintf(stderr, "Failed to create window\n");
         glfwTerminate();
@@ -139,13 +164,8 @@ int main() {
     ImGui::GetIO().IniFilename = nullptr;
     apply_style();
 
-    float x_scale = 1.0f;
-    float y_scale = 1.0f;
-    GLFWmonitor* monitor = glfwGetPrimaryMonitor();
-    if (monitor != nullptr) glfwGetMonitorContentScale(monitor, &x_scale, &y_scale);
-    float dpi_scale = x_scale > 0.0f ? x_scale : 1.0f;
-    ImGui::GetStyle().ScaleAllSizes(dpi_scale);
-    ImGui::GetStyle().FontScaleDpi = dpi_scale;
+    const ImGuiStyle base_style = ImGui::GetStyle();
+    float scale = default_scale;
     load_font();
 
     ImGui_ImplGlfw_InitForOpenGL(window, true);
@@ -160,10 +180,24 @@ int main() {
                 glfwSetWindowShouldClose(window, GLFW_FALSE);
             }
             app.poll_terminal();
+            ImGuiStyle& style = ImGui::GetStyle();
+            if (scale != style.FontScaleDpi) {
+                style = base_style;
+                style.ScaleAllSizes(scale);
+                style.FontScaleDpi = scale;
+            }
             ImGui_ImplOpenGL3_NewFrame();
             ImGui_ImplGlfw_NewFrame();
             ImGui::NewFrame();
 
+            if (ImGui::GetIO().KeyCtrl) {
+                if (ImGui::IsKeyPressed(ImGuiKey_Equal, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadAdd, false))
+                    scale = std::min(std::max(4.0f, default_scale), scale + 0.25f);
+                if (ImGui::IsKeyPressed(ImGuiKey_Minus, false) || ImGui::IsKeyPressed(ImGuiKey_KeypadSubtract, false))
+                    scale = std::max(1.0f, scale - 0.25f);
+                if (ImGui::IsKeyPressed(ImGuiKey_0, false) || ImGui::IsKeyPressed(ImGuiKey_Keypad0, false))
+                    scale = default_scale;
+            }
             app.draw();
 
             ImGui::Render();

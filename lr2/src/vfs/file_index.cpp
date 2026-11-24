@@ -1,79 +1,35 @@
 #include "vfs/file_index.h"
 
-std::string extension_of(const std::string& name) {
-    std::size_t dot = name.rfind('.');
-    if (dot == std::string::npos || dot == 0) return "";
-    return normalize_extension(name.substr(dot + 1));
+void FileIndex::add(const ShrdPtr<const File>& file) {
+    auto key = field.extract(*file);
+    if (!key) return;
+    if (!groups.contains_key(*key)) groups.add(*key, ShrdPtr<TreeSet<FileRef>>::make());
+    groups.get(*key)->add({file->get_id(), file});
 }
 
-std::string normalize_extension(std::string extension) {
-    if (!extension.empty() && extension[0] == '.') extension.erase(0, 1);
-    for (char& symbol : extension) {
-        if (symbol >= 'A' && symbol <= 'Z') symbol = static_cast<char>(symbol - 'A' + 'a');
-    }
-    return extension;
+void FileIndex::remove(const File& file) {
+    auto key = field.extract(file);
+    if (!key || !groups.contains_key(*key)) return;
+    auto& group = *groups.get(*key);
+    group.remove({file.get_id(), {}});
+    if (!group.get_count()) groups.remove(*key);
 }
 
-void FileIndex::add_to(Index& index, const std::string& key, const FilePtr& file) {
-    if (!index.contains_key(key)) index.add(key, ShrdPtr<TreeSet<FileRef>>::make());
-    index.get(key)->add(FileRef{file->get_id(), file});
-}
-
-void FileIndex::remove_from(Index& index, const std::string& key, const RegularFile& file) {
-    auto& files = *index.get(key);
-    files.remove(FileRef{file.get_id(), WeakPtr<const RegularFile>()});
-    if (files.get_count() == 0) index.remove(key);
-}
-
-DynamicArray<FileIndex::FilePtr> FileIndex::lookup(const Index& index, const std::string& key) {
-    if (!index.contains_key(key)) return DynamicArray<FilePtr>();
-
-    const auto& files = *index.get(key);
-    DynamicArray<FilePtr> result(files.get_count());
-    int position = 0;
+DynamicArray<ShrdPtr<const File>> FileIndex::find(const std::string& value) const {
+    auto key = field.normalize ? field.normalize(value) : value;
+    if (!groups.contains_key(key)) return {};
+    auto& files = *groups.get(key);
+    DynamicArray<ShrdPtr<const File>> result(files.get_count());
     auto iter = files.get_enumerator();
-    while (iter->move_next()) 
-        result.set(position++, iter->get_current().file.lock());
+    int i = 0;
+    while (iter->move_next()) result.set(i++, iter->get_current().file.lock());
     return result;
 }
 
-void FileIndex::add(const FilePtr& file) {
-    add_to(by_name, file->get_name(), file);
-    add_to(by_extension, extension_of(file->get_name()), file);
-}
-
-void FileIndex::remove(const RegularFile& file) {
-    remove_from(by_name, file.get_name(), file);
-    remove_from(by_extension, extension_of(file.get_name()), file);
-}
-
-void FileIndex::reindex_after_rename(const FilePtr& file, const std::string& old_name) {
-    remove_from(by_name, old_name, *file);
-    remove_from(by_extension, extension_of(old_name), *file);
-    add(file);
-}
-
-void FileIndex::add_subtree(const ShrdPtr<const File>& node) {
-    if (node->kind() == FileKind::Link) return;
-    if (!node->is_directory()) {
-        add(static_pointer_cast<const RegularFile>(node));
-        return;
-    }
-    DynamicArray<ShrdPtr<const File>> children = static_cast<const Directory&>(*node).list();
-    for (int index = 0; index < children.get_size(); index++) add_subtree(children.get(index));
-}
-
-void FileIndex::remove_subtree(const ShrdPtr<const File>& node) {
-    if (node->kind() == FileKind::Link) return;
-    if (!node->is_directory()) {
-        remove(static_cast<const RegularFile&>(*node));
-        return;
-    }
-    DynamicArray<ShrdPtr<const File>> children = static_cast<const Directory&>(*node).list();
-    for (int index = 0; index < children.get_size(); index++) remove_subtree(children.get(index));
-}
-
-DynamicArray<FileIndex::FilePtr> FileIndex::find(SearchField field, const std::string& value) const {
-    return field == SearchField::Name ? lookup(by_name, value)
-                                      : lookup(by_extension, normalize_extension(value));
+void FileIndex::build(const ShrdPtr<const File>& root) {
+    FileIndex built(field);
+    visit_files(root, [&](const auto& file) {
+        if (file != root) built.add(file);
+    });
+    groups = std::move(built.groups);
 }

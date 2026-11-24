@@ -38,7 +38,7 @@ class BenchmarkPanel {
         void draw_controls() {
             bool locked = run.running();
             ImGui::BeginDisabled(locked);
-            ImGui::SetNextItemWidth(200);
+            ImGui::SetNextItemWidth(200 * ImGui::GetStyle().FontScaleDpi);
             ImGui::SliderInt("max n = 10^k", &max_exponent, 3, 7);
             ImGui::EndDisabled();
             if (max_exponent >= 7) {
@@ -57,7 +57,7 @@ class BenchmarkPanel {
             ImGui::SameLine();
             ImGui::Text("%s", run.status.c_str());
 
-            ImGui::SetNextItemWidth(300);
+            ImGui::SetNextItemWidth(300 * ImGui::GetStyle().FontScaleDpi);
             ImGui::InputText("##csv", csv_path, sizeof(csv_path));
             ImGui::SameLine();
             ImGui::BeginDisabled(run.running());

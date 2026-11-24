@@ -17,10 +17,12 @@ enum class FileKind { Regular, Directory, Link };
 class File {
     friend class Directory;
     private:
+        std::uint64_t id;
         std::string name;
         WeakPtr<Directory> parent;
     public:
-        explicit File(const std::string& name) : name(name) {}
+        explicit File(const std::string& name);
+        std::uint64_t get_id() const { return id; }
         File(const File&) = delete;
         File& operator=(const File&) = delete;
         virtual ~File() = default;
@@ -32,32 +34,27 @@ class File {
         bool is_directory() const { return kind() == FileKind::Directory; }
 };
 
-class DirectoryLink : public File {
+class Link : public File {
     private:
-        std::string target;
+        WeakPtr<File> target;
     public:
-        DirectoryLink(const std::string& name, const std::string& target) : File(name), target(target) {}
+        Link(const std::string& name, const ShrdPtr<File>& target) : File(name), target(target) {}
         FileKind kind() const override { return FileKind::Link; }
-        const std::string& target_path() const { return target; }
+        ShrdPtr<File> destination(const File& root) const;
+        std::string target_path(const File& root) const;
 };
 
 class Directory : public File {
     friend class VirtualFileSystem;
     private:
-        struct Key {
-            explicit Key() = default;
-        };
-
         TreeDictionary<std::string, ShrdPtr<File>> children;
         int subdirectory_count = 0;
-        WeakPtr<Directory> self;
 
-        void add_child(ShrdPtr<File> child);
+        static void add_child(const ShrdPtr<Directory>& parent, const ShrdPtr<File>& child);
         ShrdPtr<File> remove_child(const std::string& name);
         void rename_child(const std::string& old_name, const std::string& new_name);
     public:
-        Directory(Key, const std::string& name) : File(name) {}
-        static ShrdPtr<Directory> create(const std::string& name);
+        explicit Directory(const std::string& name) : File(name) {}
 
         FileKind kind() const override { return FileKind::Directory; }
         int get_child_count() const { return children.get_count(); }
@@ -70,14 +67,22 @@ class Directory : public File {
 class RegularFile : public File {
     private:
         UnqPtr<IContentSource> content;
-        std::uint64_t id;
     public:
         RegularFile(const std::string& name, UnqPtr<IContentSource> content);
 
         FileKind kind() const override { return FileKind::Regular; }
         IContentSource& get_content() { return *content; }
         const IContentSource& get_content() const { return *content; }
-        std::uint64_t get_id() const { return id; }
 };
+
+template<class F>
+void visit_files(const ShrdPtr<const File>& file, const F& visit) {
+    visit(file);
+    if (file->is_directory()) {
+        auto children = static_cast<const Directory&>(*file).list();
+        for (int i = 0; i < children.get_size(); ++i)
+            visit_files(children.get(i), visit);
+    }
+}
 
 #endif

@@ -17,58 +17,58 @@ static std::string read_path(std::istream& input, const std::string& command, bo
     return path;
 }
 
-static void change_directory(VirtualFileSystem& vfs, std::istream& input, CommandResult& result) {
-    vfs.change_directory(read_path(input, "cd"));
+static void change_directory(FileSystemAccess& access, std::istream& input, CommandResult& result) {
+    access.change_directory(read_path(input, "cd"));
     result.navigated = true;
 }
 
-static void list_files(VirtualFileSystem& vfs, std::istream& input, CommandResult& result) {
-    auto files = vfs.list(input.eof() ? "." : read_path(input, "ls"));
+static void list_files(FileSystemAccess& access, std::istream& input, CommandResult& result) {
+    auto files = input.eof() ? access.current_directory().list() : access.list(read_path(input, "ls"));
     for (int i = 0; i < files.get_size(); ++i) {
         const auto& file = files.get(i);
         if (file->kind() == FileKind::Link) {
-            result.output += file->get_name() + " → " + static_cast<const DirectoryLink&>(*file).target_path() + "\n";
+            result.output += file->get_name() + " → " + static_cast<const Link&>(*file).target_path(access.filesystem().get_root()) + "\n";
             continue;
         }
         result.output += file->get_name() + (file->is_directory() ? "/\n" : "\n");
     }
 }
 
-static void make_directory(VirtualFileSystem& vfs, std::istream& input, CommandResult& result) {
-    vfs.make_directory(read_path(input, "mkdir"));
+static void make_directory(FileSystemAccess& access, std::istream& input, CommandResult& result) {
+    access.make_directory(read_path(input, "mkdir"));
     result.changed = true;
 }
 
-static void touch_file(VirtualFileSystem& vfs, std::istream& input, CommandResult& result) {
-    result.changed = vfs.touch(read_path(input, "touch"));
+static void touch_file(FileSystemAccess& access, std::istream& input, CommandResult& result) {
+    result.changed = access.touch(read_path(input, "touch"));
 }
 
-static void print_file(VirtualFileSystem& vfs, std::istream& input, CommandResult& result) {
-    result.output = vfs.read_text(read_path(input, "cat"));
+static void print_file(FileSystemAccess& access, std::istream& input, CommandResult& result) {
+    result.output = access.read_text(read_path(input, "cat"));
 }
 
-static void remove_file(VirtualFileSystem& vfs, std::istream& input, CommandResult& result) {
-    vfs.remove(read_path(input, "rm"));
+static void remove_file(FileSystemAccess& access, std::istream& input, CommandResult& result) {
+    access.remove(read_path(input, "rm"));
     result.changed = true;
 }
 
-static void make_link(VirtualFileSystem& vfs, std::istream& input, CommandResult& result) {
+static void make_link(FileSystemAccess& access, std::istream& input, CommandResult& result) {
     std::string flag;
-    if (!(input >> flag) || flag != "-s") throw std::invalid_argument("Использование: ln -s /каталог ссылка");
+    if (!(input >> flag) || flag != "-s") throw std::invalid_argument("Использование: ln -s цель ссылка");
     input >> std::ws;
     auto target = read_path(input, "ln -s", false);
-    vfs.make_link(target, read_path(input, "ln -s"));
+    access.make_link(target, read_path(input, "ln -s"));
     result.changed = true;
 }
 
-static void exit_shell(VirtualFileSystem&, std::istream& input, CommandResult& result) {
+static void exit_shell(FileSystemAccess&, std::istream& input, CommandResult& result) {
     if (!input.eof()) throw std::invalid_argument("Использование: exit");
     result.exit = true;
 }
 
 struct Command {
     std::string_view name;
-    void (*run)(VirtualFileSystem&, std::istream&, CommandResult&);
+    void (*run)(FileSystemAccess&, std::istream&, CommandResult&);
 };
 
 static constexpr Command commands[] = {
@@ -82,7 +82,7 @@ static constexpr Command commands[] = {
     {"exit", exit_shell},
 };
 
-CommandResult execute_command(VirtualFileSystem& vfs, const std::string& line) {
+CommandResult execute_command(FileSystemAccess& access, const std::string& line) {
     CommandResult result;
     try {
         std::istringstream input(line);
@@ -92,7 +92,7 @@ CommandResult execute_command(VirtualFileSystem& vfs, const std::string& line) {
 
         for (const auto& command : commands) {
             if (command.name == name) {
-                command.run(vfs, input, result);
+                command.run(access, input, result);
                 return result;
             }
         }

@@ -26,60 +26,51 @@ static std::string real_name(fs::path path) {
     return path.filename().u8string();
 }
 
-namespace {
-    class DiskReader : public IFileSystemReader {
-        public:
-            UnqPtr<IContentSource> open_file(const fs::path& path) const override {
-                if (!fs::is_regular_file(path)) {
-                    throw std::invalid_argument("Реальный файл не найден: " + path.u8string());
-                }
-                return UnqPtr<RealFileSource>::make(fs::absolute(path).u8string());
-            }
-
-            ArraySequence<DiskEntry> list_directory(const fs::path& path) const override {
-                if (!fs::is_directory(path)) {
-                    throw std::invalid_argument("Реальная папка не найдена: " + path.u8string());
-                }
-                ArraySequence<DiskEntry> entries;
-                for (const auto& entry : fs::directory_iterator(path, fs::directory_options::skip_permission_denied)) {
-                    if (entry.is_symlink()) continue;
-                    if (entry.is_directory()) entries.push_back({entry.path(), true});
-                    else if (entry.is_regular_file()) entries.push_back({entry.path(), false});
-                }
-                return entries;
-            }
-    };
-
-    DiskReader disk_reader;
+UnqPtr<IContentSource> DiskReader::open_file(const fs::path& path) const {
+    if (!fs::is_regular_file(path)) {
+        throw std::invalid_argument("Реальный файл не найден: " + path.u8string());
+    }
+    return UnqPtr<RealFileSource>::make(fs::absolute(path).u8string());
 }
 
-ShrdPtr<Directory> VirtualFileSystem::build_directory(const fs::path& path) const {
-    auto directory = Directory::create(real_name(path));
+ArraySequence<DiskEntry> DiskReader::list_directory(const fs::path& path) const {
+    if (!fs::is_directory(path)) {
+        throw std::invalid_argument("Реальная папка не найдена: " + path.u8string());
+    }
+    ArraySequence<DiskEntry> entries;
+    for (const auto& entry : fs::directory_iterator(path, fs::directory_options::skip_permission_denied)) {
+        if (entry.is_symlink()) continue;
+        if (entry.is_directory()) entries.push_back({entry.path(), true});
+        else if (entry.is_regular_file()) entries.push_back({entry.path(), false});
+    }
+    return entries;
+}
+
+ShrdPtr<Directory> VirtualFileSystem::build_directory(const fs::path& path, const IFileSystemReader& reader) {
+    auto directory = ShrdPtr<Directory>::make(real_name(path));
     for (const auto& entry : reader.list_directory(path)) {
         if (entry.is_directory) {
-            directory->add_child(build_directory(entry.path));
+            Directory::add_child(directory, build_directory(entry.path, reader));
         } else {
-            directory->add_child(ShrdPtr<RegularFile>::make(real_name(entry.path), reader.open_file(entry.path)));
+            Directory::add_child(directory, ShrdPtr<RegularFile>::make(real_name(entry.path), reader.open_file(entry.path)));
         }
     }
     return directory;
 }
 
-VirtualFileSystem::VirtualFileSystem() : VirtualFileSystem(disk_reader) {}
+VirtualFileSystem::VirtualFileSystem() : root(ShrdPtr<Directory>::make("")) {}
 
-VirtualFileSystem::VirtualFileSystem(IFileSystemReader& reader)
-    : root(Directory::create("")), current(root), reader(reader) {}
-
-ShrdPtr<File> VirtualFileSystem::find(const std::string& path, bool follow_last) const {
-    TreeSet<std::string> resolving;
-    return resolve(path, follow_last, resolving);
+std::string FileSystemAccess::absolute(const std::string& path) const {
+    if (path.empty()) throw std::invalid_argument("Пустой путь");
+    if (path.front() == '/') return path;
+    auto base = current_path();
+    return (base == "/" ? base : base + "/") + path;
 }
 
-ShrdPtr<File> VirtualFileSystem::resolve(const std::string& path, bool follow_last, TreeSet<std::string>& resolving) const {
-    if (path.empty()) throw std::invalid_argument("Пустой путь");
-    bool absolute = path.front() == '/';
-    ShrdPtr<File> node = absolute ? root : current;
-    std::size_t begin = absolute ? 1 : 0;
+ShrdPtr<File> VirtualFileSystem::find(const std::string& path, bool follow_last) const {
+    if (path.empty() || path.front() != '/') throw std::invalid_argument("Требуется абсолютный путь");
+    ShrdPtr<File> node = root;
+    std::size_t begin = 1;
 
     while (begin < path.size()) {
         std::size_t end = path.find('/', begin);
@@ -94,16 +85,8 @@ ShrdPtr<File> VirtualFileSystem::resolve(const std::string& path, bool follow_la
             }
             if (!node) return {};
             if (node->kind() == FileKind::Link && (follow_last || path.find_first_not_of('/', end) != std::string::npos)) {
-                const auto& link = static_cast<const DirectoryLink&>(*node);
-
-                const std::string link_path = link.get_path();
-                if (!resolving.add(link_path)) throw std::invalid_argument("Цикл ссылок: " + link_path);
-
-                auto target = resolve(link.target_path(), true, resolving);
-                resolving.remove(link_path);
-
-                if (!target || !target->is_directory()) throw std::invalid_argument("Цель ссылки недоступна: " + link.target_path());
-                node = target;
+                node = static_cast<const Link&>(*node).destination(*root);
+                if (!node) throw std::invalid_argument("Цель ссылки недоступна");
             }
         }
         begin = end + 1;
@@ -111,20 +94,20 @@ ShrdPtr<File> VirtualFileSystem::resolve(const std::string& path, bool follow_la
     return node;
 }
 
-ShrdPtr<File> VirtualFileSystem::node_at(const std::string& path, bool follow_last) const {
+ShrdPtr<File> VirtualFileSystem::require_entry(const std::string& path, bool follow_last) const {
     ShrdPtr<File> node = find(path, follow_last);
     if (!node) throw std::invalid_argument("Путь не найден: " + path);
     return node;
 }
 
-ShrdPtr<Directory> VirtualFileSystem::directory_at(const std::string& path) const {
-    ShrdPtr<File> node = node_at(path);
+ShrdPtr<Directory> VirtualFileSystem::require_directory(const std::string& path) const {
+    ShrdPtr<File> node = require_entry(path);
     if (!node->is_directory()) throw std::invalid_argument("Это не каталог: " + path);
     return static_pointer_cast<Directory>(node);
 }
 
-ShrdPtr<File> VirtualFileSystem::movable_node_at(const std::string& path) const {
-    ShrdPtr<File> node = node_at(path, false);
+ShrdPtr<File> VirtualFileSystem::require_non_root_entry(const std::string& path) const {
+    ShrdPtr<File> node = require_entry(path, false);
     if (node == root) throw std::invalid_argument("Корень нельзя перемещать, переименовывать и удалять");
     return node;
 }
@@ -134,30 +117,28 @@ bool VirtualFileSystem::exists(const std::string& path) const {
 }
 
 const File& VirtualFileSystem::get(const std::string& path) const {
-    return *node_at(path, false);
+    return *require_entry(path, false);
 }
 
 DynamicArray<ShrdPtr<const File>> VirtualFileSystem::list(const std::string& directory_path) const {
-    return directory_at(directory_path)->list();
-}
-
-void VirtualFileSystem::change_directory(const std::string& path) {
-    current = directory_at(path);
+    return require_directory(directory_path)->list();
 }
 
 ShrdPtr<const RegularFile> VirtualFileSystem::regular_file(const std::string& path) const {
-    auto file = node_at(path);
+    auto file = require_entry(path);
     if (file->is_directory()) throw std::invalid_argument("Это каталог: " + path);
     return static_pointer_cast<const RegularFile>(file);
 }
 
 void VirtualFileSystem::make_link(const std::string& target, const std::string& path) {
-    if (target.empty() || target.front() != '/') throw std::invalid_argument("Укажите абсолютный путь к каталогу");
-    directory_at(target);
+    if (target.empty() || target.front() != '/') throw std::invalid_argument("Укажите абсолютный путь к цели");
+    auto destination = require_entry(target);
     std::string parent, name;
     split_path(path, parent, name);
     check_name(name);
-    directory_at(parent)->add_child(ShrdPtr<DirectoryLink>::make(name, target));
+    auto link = ShrdPtr<Link>::make(name, destination);
+    auto directory = require_directory(parent);
+    attach_entry(directory, link);
 }
 
 bool VirtualFileSystem::touch(const std::string& path) {
@@ -180,50 +161,58 @@ void VirtualFileSystem::save_text(const std::string& path, std::uint64_t id, con
     if (!node || node->is_directory() || static_cast<RegularFile&>(*node).get_id() != id)
         throw std::invalid_argument("Открытый файл был удалён или заменён");
     auto& file = static_cast<RegularFile&>(*node);
-    file.get_content().save(text);
+    unindex_entry(node);
+    try { file.get_content().save(text); }
+    catch (...) { index_entry(node); throw; }
+    index_entry(node);
 }
 
 void VirtualFileSystem::make_directory(const std::string& path) {
     std::string parent_path, name;
     split_path(path, parent_path, name);
     check_name(name);
-    directory_at(parent_path)->add_child(Directory::create(name));
+    attach_entry(require_directory(parent_path), ShrdPtr<Directory>::make(name));
 }
 
 void VirtualFileSystem::add_file(const std::string& directory_path, const std::string& name, UnqPtr<IContentSource> content) {
-    ShrdPtr<Directory> directory = directory_at(directory_path);
+    ShrdPtr<Directory> directory = require_directory(directory_path);
     check_name(name);
     ShrdPtr<RegularFile> file = ShrdPtr<RegularFile>::make(name, std::move(content));
-    directory->add_child(file);
-    index.add(file);
+    attach_entry(directory, file);
 }
 
-void VirtualFileSystem::attach_file(const std::string& real_path, const std::string& directory_path, const std::string& name) {
+void VirtualFileSystem::attach_file(const std::string& real_path, const std::string& directory_path,
+                                    const std::string& name, const IFileSystemReader& reader) {
     fs::path real = fs::u8path(real_path);
     add_file(directory_path, name.empty() ? real_name(real) : name, reader.open_file(real));
 }
 
-void VirtualFileSystem::import_directory(const std::string& real_path, const std::string& directory_path) {
-    ShrdPtr<Directory> directory = directory_at(directory_path);
+void VirtualFileSystem::import_directory(const std::string& real_path, const std::string& directory_path,
+                                         const IFileSystemReader& reader) {
+    ShrdPtr<Directory> directory = require_directory(directory_path);
     fs::path real = fs::u8path(real_path);
 
-    ShrdPtr<Directory> imported = build_directory(real);
-    directory->add_child(imported);
-    index.add_subtree(imported);
+    ShrdPtr<Directory> imported = build_directory(real, reader);
+    attach_entry(directory, imported);
 }
 
 void VirtualFileSystem::remove(const std::string& path) {
-    ShrdPtr<File> node = movable_node_at(path);
-    for (auto ancestor = current; ancestor; ancestor = ancestor->get_parent()) {
-        if (ancestor == node) throw std::invalid_argument("Сначала выйдите из удаляемого каталога");
+    ShrdPtr<File> node = require_non_root_entry(path);
+    for (auto client : clients) {
+        for (auto directory = &client->current_directory(); directory; directory = directory->get_parent().get()) {
+            if (directory == node.get()) throw std::invalid_argument("Сначала выйдите из удаляемого каталога");
+        }
     }
-    index.remove_subtree(node);
-    node->get_parent()->remove_child(node->get_name());
+    auto parent = node->get_parent();
+    visit_files(node, [&](const auto& file) { unindex_entry(file); });
+    unindex_entry(parent);
+    parent->remove_child(node->get_name());
+    index_entry(parent);
 }
 
 void VirtualFileSystem::move(const std::string& path, const std::string& target_directory) {
-    ShrdPtr<File> node = movable_node_at(path);
-    ShrdPtr<Directory> target = directory_at(target_directory);
+    ShrdPtr<File> node = require_non_root_entry(path);
+    ShrdPtr<Directory> target = require_directory(target_directory);
     ShrdPtr<Directory> parent = node->get_parent();
     if (target == parent) return;
 
@@ -234,47 +223,74 @@ void VirtualFileSystem::move(const std::string& path, const std::string& target_
         throw std::invalid_argument("Имя уже занято: " + node->get_name());
     }
 
-    target->add_child(parent->remove_child(node->get_name()));
+    visit_files(node, [&](const auto& file) { unindex_entry(file); });
+    unindex_entry(parent);
+    auto moved = parent->remove_child(node->get_name());
+    index_entry(parent);
+    attach_entry(target, moved);
 }
 
 void VirtualFileSystem::rename(const std::string& path, const std::string& new_name) {
     check_name(new_name);
-    ShrdPtr<File> node = movable_node_at(path);
-    std::string old_name = node->get_name();
-    node->get_parent()->rename_child(old_name, new_name);
-
-    if (node->kind() == FileKind::Regular && old_name != new_name) {
-        index.reindex_after_rename(static_pointer_cast<const RegularFile>(node), old_name);
-    }
+    ShrdPtr<File> node = require_non_root_entry(path);
+    auto parent = node->get_parent();
+    if (new_name == node->get_name()) return;
+    if (parent->find_child(new_name)) throw std::invalid_argument("Имя уже занято: " + new_name);
+    visit_files(node, [&](const auto& file) { unindex_entry(file); });
+    parent->rename_child(node->get_name(), new_name);
+    visit_files(node, [&](const auto& file) { index_entry(file); });
 }
 
-static void scan(const Directory& directory, SearchField field, const std::string& value, 
-                 DynamicArray<ShrdPtr<const RegularFile>>& found, int& count) {
-    DynamicArray<ShrdPtr<const File>> children = directory.list();
-    for (int position = 0; position < children.get_size(); position++) {
-        const ShrdPtr<const File>& child = children.get(position);
-        if (child->kind() == FileKind::Link) continue;
-        if (child->is_directory()) {
-            scan(static_cast<const Directory&>(*child), field, value, found, count);
-            continue;
-        }
-        const std::string& name = child->get_name();
-        bool matches = field == SearchField::Name ? name == value : extension_of(name) == value;
-        if (!matches) continue;
-
-        if (count == found.get_size()) found.resize(count == 0 ? 4 : count * 2);
-        found.set(count++, static_pointer_cast<const RegularFile>(child));
-    }
+void VirtualFileSystem::index_entry(const ShrdPtr<const File>& file) {
+    if (file == root) return;
+    for (auto& index : indexes)
+        index.add(file);
 }
 
-DynamicArray<ShrdPtr<const RegularFile>> VirtualFileSystem::find_files(SearchField field, const std::string& value,
-                                                                SearchMethod method) const {
-    if (method == SearchMethod::Index) return index.find(field, value);
+void VirtualFileSystem::unindex_entry(const ShrdPtr<const File>& file) {
+    if (file == root) return;
+    for (auto& index : indexes)
+        index.remove(*file);
+}
 
-    std::string query = field == SearchField::Extension ? normalize_extension(value) : value;
-    DynamicArray<ShrdPtr<const RegularFile>> found;
-    int count = 0;
-    scan(*root, field, query, found, count);
-    found.resize(count);
-    return found;
+void VirtualFileSystem::attach_entry(const ShrdPtr<Directory>& parent, const ShrdPtr<File>& child) {
+    if (parent->find_child(child->get_name()))
+        throw std::invalid_argument("Имя уже занято: " + child->get_name());
+    unindex_entry(parent);
+    Directory::add_child(parent, child);
+    index_entry(parent);
+    visit_files(child, [&](const auto& file) { index_entry(file); });
+}
+
+FileIndex& VirtualFileSystem::create_index(SearchCriterion criterion) {
+    FileIndex index(criterion);
+    index.build(root);
+    return indexes.push_back(std::move(index));
+}
+
+void VirtualFileSystem::build_index(SearchCriterion field) {
+    for (auto& index : indexes) {
+        if (index.criterion() == field) { index.build(root); return; }
+    }
+    create_index(field);
+}
+
+DynamicArray<ShrdPtr<const File>> VirtualFileSystem::find_files(SearchCriterion field, const std::string& value,
+                                                                SearchMethod method) {
+    if (!field.extract) throw std::invalid_argument("Не задан критерий поиска");
+    if (method == SearchMethod::Index) {
+        for (const auto& index : indexes)
+            if (index.criterion() == field) return index.find(value);
+        return create_index(field).find(value);
+    }
+    auto query = field.normalize ? field.normalize(value) : value;
+    ArraySequence<ShrdPtr<const File>> matches;
+    visit_files(root, [&](const auto& file) {
+        if (file != root && field.extract(*file) == query)
+            matches.push_back(file);
+    });
+    DynamicArray<ShrdPtr<const File>> result(matches.size());
+    for (int i = 0; i < result.get_size(); ++i)
+        result.set(i, matches[i]);
+    return result;
 }

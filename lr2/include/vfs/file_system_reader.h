@@ -18,4 +18,10 @@ class IFileSystemReader {
         virtual ~IFileSystemReader() = default;
 };
 
+class DiskReader final : public IFileSystemReader {
+    public:
+        UnqPtr<IContentSource> open_file(const std::filesystem::path& path) const override;
+        ArraySequence<DiskEntry> list_directory(const std::filesystem::path& path) const override;
+};
+
 #endif

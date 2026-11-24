@@ -10,4 +10,4 @@ struct CommandResult {
     bool failed = false;
 };
 
-CommandResult execute_command(VirtualFileSystem& vfs, const std::string& line);
+CommandResult execute_command(FileSystemAccess& access, const std::string& line);

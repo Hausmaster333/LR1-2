@@ -1,5 +1,4 @@
 #include "vfs/file.h"
-#include <atomic>
 #include <stdexcept>
 #include <utility>
 
@@ -9,12 +8,6 @@ std::string File::get_path() const {
 
     std::string parent_path = owner->get_path();
     return (parent_path == "/" ? "" : parent_path) + "/" + name;
-}
-
-ShrdPtr<Directory> Directory::create(const std::string& name) {
-    ShrdPtr<Directory> directory = ShrdPtr<Directory>::make(Key(), name);
-    directory->self = directory;
-    return directory;
 }
 
 ShrdPtr<File> Directory::find_child(const std::string& name) const {
@@ -34,13 +27,13 @@ DynamicArray<ShrdPtr<const File>> Directory::list() const {
     return result;
 }
 
-void Directory::add_child(ShrdPtr<File> child) {
-    if (children.contains_key(child->name)) {
+void Directory::add_child(const ShrdPtr<Directory>& parent, const ShrdPtr<File>& child) {
+    if (parent->children.contains_key(child->name)) {
         throw std::invalid_argument("Имя уже занято: " + child->name);
     }
-    children.add(child->name, child);
-    child->parent = self;
-    if (child->is_directory()) subdirectory_count++;
+    parent->children.add(child->name, child);
+    child->parent = parent;
+    if (child->is_directory()) parent->subdirectory_count++;
 }
 
 ShrdPtr<File> Directory::remove_child(const std::string& name) {
@@ -55,12 +48,29 @@ void Directory::rename_child(const std::string& old_name, const std::string& new
     if (old_name == new_name) return;
     if (children.contains_key(new_name)) throw std::invalid_argument("Имя уже занято: " + new_name);
 
-    ShrdPtr<File> child = remove_child(old_name);
-    child->name = new_name;
-    add_child(std::move(child));
+    ShrdPtr<File> child = children.get(old_name);
+    std::string name = new_name;
+    children.add(name, child);
+    children.remove(old_name);
+    child->name = std::move(name);
 }
 
-static std::atomic<std::uint64_t> next_file_id{0};
+static std::uint64_t next_file_id = 0;
+
+File::File(const std::string& name) : id(next_file_id++), name(name) {}
+
+ShrdPtr<File> Link::destination(const File& root) const {
+    auto file = target.lock();
+    for (auto ancestor = file; ancestor; ancestor = ancestor->get_parent()) {
+        if (&*ancestor == &root) return file;
+    }
+    return {};
+}
+
+std::string Link::target_path(const File& root) const {
+    auto file = destination(root);
+    return file ? file->get_path() : "цель недоступна";
+}
 
 RegularFile::RegularFile(const std::string& name, UnqPtr<IContentSource> content)
-    : File(name), content(std::move(content)), id(next_file_id.fetch_add(1)) {}
+    : File(name), content(std::move(content)) {}

@@ -1,6 +1,7 @@
 #ifndef VFS_BENCHMARK_H
 #define VFS_BENCHMARK_H
 
+#include "vfs/search_criteria.h"
 #include "bench/process_memory.h"
 #include "vfs/virtual_file_system.h"
 #include <algorithm>
@@ -82,7 +83,7 @@ inline SizeResult measure(long long size, const Params& params) {
         if (kind == DESCENDING) std::reverse(order.begin(), order.end());
         if (kind == RANDOM) std::shuffle(order.begin(), order.end(), random);
 
-        FileIndex index;
+        FileIndex index(by_name);
         std::size_t memory_before = get_process_memory();
         result.build_ms[kind] = time_ms([&] { for (int number : order) index.add(files[number]); });
         std::size_t memory_after = get_process_memory();
@@ -111,13 +112,14 @@ inline SizeResult measure(long long size, const Params& params) {
         long long found = 0;
         double total = time_ms([&] {
             for (int query = 0; query < queries; query++) {
-                found += vfs.find_files(SearchField::Name, file_name(any_file(random)), method).get_size();
+                found += vfs.find_files(by_name, file_name(any_file(random)), method).get_size();
             }
         });
         keep(found);
         return total / queries;
     };
     result.scan_ms = average_search_ms(SearchMethod::FullScan, params.scan_queries);
+    vfs.build_index(by_name);
     result.index_ms = average_search_ms(SearchMethod::Index, params.index_queries);
     return result;
 }

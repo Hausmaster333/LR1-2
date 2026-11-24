@@ -1,6 +1,7 @@
 #ifndef SEARCH_PANEL_H
 #define SEARCH_PANEL_H
 
+#include "vfs/search_criteria.h"
 #include "bench/vfs_benchmark.h"
 #include "gui/explorer_panel.h"
 #include "imgui.h"
@@ -9,15 +10,15 @@
 
 class SearchPanel {
     private:
-        const VirtualFileSystem& vfs;
+        VirtualFileSystem& vfs;
         int field = 0; // 0 - имя, 1 - расширение
         char query[256] = "";
-        DynamicArray<ShrdPtr<const RegularFile>> found;
+        DynamicArray<ShrdPtr<const File>> found;
         bool searched = false;
         double scan_ms = 0;
         double index_ms = 0;
 
-        double average_ms(SearchField search_field, SearchMethod method) {
+        double average_ms(SearchCriterion search_field, SearchMethod method) {
             double total = 0;
             int runs = 0;
             while (total < 20.0 && runs < 1000) {
@@ -28,8 +29,9 @@ class SearchPanel {
         }
 
         void search() {
-            SearchField search_field = field == 0 ? SearchField::Name : SearchField::Extension;
+            SearchCriterion search_field = field == 0 ? by_name : by_extension;
             scan_ms = average_ms(search_field, SearchMethod::FullScan);
+            vfs.find_files(search_field, query, SearchMethod::Index); // Построение индекса вне замера.
             index_ms = average_ms(search_field, SearchMethod::Index);
             searched = true;
         }
@@ -46,10 +48,10 @@ class SearchPanel {
             }
         }
     public:
-        explicit SearchPanel(const VirtualFileSystem& vfs) : vfs(vfs) {}
+        explicit SearchPanel(VirtualFileSystem& vfs) : vfs(vfs) {}
 
         void clear() {
-            found = DynamicArray<ShrdPtr<const RegularFile>>();
+            found = DynamicArray<ShrdPtr<const File>>();
             searched = false;
         }
 
@@ -78,7 +80,7 @@ class SearchPanel {
                 for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++) {
                     std::string path = found.get(row)->get_path();
                     ImGui::PushID(row);
-                    gui::draw_icon(false);
+                    gui::draw_icon(found.get(row)->is_directory());
                     if (ImGui::Selectable(path.c_str(), false, ImGuiSelectableFlags_AllowDoubleClick)
                         && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
                         reveal = path;

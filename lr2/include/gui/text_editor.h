@@ -2,6 +2,7 @@
 
 #include "imgui.h"
 #include "vfs/virtual_file_system.h"
+#include <algorithm>
 
 class TextEditor {
     ShrdPtr<const RegularFile> file;
@@ -42,12 +43,15 @@ public:
             ImGui::OpenPopup("Документ");
             opening = false;
         }
-        ImGui::SetNextWindowSize(ImVec2(560, 380), ImGuiCond_Appearing);
+        const float scale = ImGui::GetStyle().FontScaleDpi;
+        const ImVec2 available = ImGui::GetMainViewport()->WorkSize;
+        ImGui::SetNextWindowSize(ImVec2(std::min(560 * scale, available.x * 0.95f),
+                                        std::min(380 * scale, available.y * 0.95f)), ImGuiCond_Appearing);
         if (!ImGui::BeginPopupModal("Документ")) return false;
         bool saved = false;
         ImGui::TextUnformatted(file->get_name().c_str());
         if (file->get_content().editable()) {
-            if (ImGui::InputTextMultiline("##text", text.data(), text.capacity() + 1, ImVec2(-1, closing ? -ImGui::GetFrameHeightWithSpacing() * 4 : -95),
+            if (ImGui::InputTextMultiline("##text", text.data(), text.capacity() + 1, ImVec2(-1, closing ? -ImGui::GetFrameHeightWithSpacing() * 4 : -95 * scale),
                                           ImGuiInputTextFlags_CallbackResize, resize_buffer, &text)) dirty = true;
             if (!closing) {
                 if (ImGui::Button("Сохранить")) saved = save(vfs);
@@ -55,7 +59,7 @@ public:
             }
         } else {
             ImGui::TextDisabled("Только чтение");
-            ImGui::BeginChild("##contents", ImVec2(-1,-65), ImGuiChildFlags_Borders);
+            ImGui::BeginChild("##contents", ImVec2(-1, -65 * scale), ImGuiChildFlags_Borders);
             ImGui::TextUnformatted(text.data(), text.data() + text.size());
             ImGui::EndChild();
         }
