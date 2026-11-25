@@ -161,10 +161,8 @@ void VirtualFileSystem::save_text(const std::string& path, std::uint64_t id, con
     if (!node || node->is_directory() || static_cast<RegularFile&>(*node).get_id() != id)
         throw std::invalid_argument("Открытый файл был удалён или заменён");
     auto& file = static_cast<RegularFile&>(*node);
-    unindex_entry(node);
-    try { file.get_content().save(text); }
-    catch (...) { index_entry(node); throw; }
-    index_entry(node);
+    invalidate_indexes();
+    file.get_content().save(text);
 }
 
 void VirtualFileSystem::make_directory(const std::string& path) {
@@ -204,10 +202,8 @@ void VirtualFileSystem::remove(const std::string& path) {
         }
     }
     auto parent = node->get_parent();
-    visit_files(node, [&](const auto& file) { unindex_entry(file); });
-    unindex_entry(parent);
+    invalidate_indexes();
     parent->remove_child(node->get_name());
-    index_entry(parent);
 }
 
 void VirtualFileSystem::move(const std::string& path, const std::string& target_directory) {
@@ -223,11 +219,9 @@ void VirtualFileSystem::move(const std::string& path, const std::string& target_
         throw std::invalid_argument("Имя уже занято: " + node->get_name());
     }
 
-    visit_files(node, [&](const auto& file) { unindex_entry(file); });
-    unindex_entry(parent);
+    invalidate_indexes();
     auto moved = parent->remove_child(node->get_name());
-    index_entry(parent);
-    attach_entry(target, moved);
+    Directory::add_child(target, moved);
 }
 
 void VirtualFileSystem::rename(const std::string& path, const std::string& new_name) {
@@ -236,61 +230,25 @@ void VirtualFileSystem::rename(const std::string& path, const std::string& new_n
     auto parent = node->get_parent();
     if (new_name == node->get_name()) return;
     if (parent->find_child(new_name)) throw std::invalid_argument("Имя уже занято: " + new_name);
-    visit_files(node, [&](const auto& file) { unindex_entry(file); });
+    invalidate_indexes();
     parent->rename_child(node->get_name(), new_name);
-    visit_files(node, [&](const auto& file) { index_entry(file); });
-}
-
-void VirtualFileSystem::index_entry(const ShrdPtr<const File>& file) {
-    if (file == root) return;
-    for (auto& index : indexes)
-        index.add(file);
-}
-
-void VirtualFileSystem::unindex_entry(const ShrdPtr<const File>& file) {
-    if (file == root) return;
-    for (auto& index : indexes)
-        index.remove(*file);
 }
 
 void VirtualFileSystem::attach_entry(const ShrdPtr<Directory>& parent, const ShrdPtr<File>& child) {
-    if (parent->find_child(child->get_name()))
-        throw std::invalid_argument("Имя уже занято: " + child->get_name());
-    unindex_entry(parent);
     Directory::add_child(parent, child);
-    index_entry(parent);
-    visit_files(child, [&](const auto& file) { index_entry(file); });
+    invalidate_indexes();
 }
 
-FileIndex& VirtualFileSystem::create_index(SearchCriterion criterion) {
-    FileIndex index(criterion);
-    index.build(root);
-    return indexes.push_back(std::move(index));
+void VirtualFileSystem::invalidate_indexes() {
+    indexes.clear();
+    indexed_files.reset();
 }
 
-void VirtualFileSystem::build_index(SearchCriterion field) {
-    for (auto& index : indexes) {
-        if (index.criterion() == field) { index.build(root); return; }
-    }
-    create_index(field);
-}
-
-DynamicArray<ShrdPtr<const File>> VirtualFileSystem::find_files(SearchCriterion field, const std::string& value,
-                                                                SearchMethod method) {
-    if (!field.extract) throw std::invalid_argument("Не задан критерий поиска");
-    if (method == SearchMethod::Index) {
-        for (const auto& index : indexes)
-            if (index.criterion() == field) return index.find(value);
-        return create_index(field).find(value);
-    }
-    auto query = field.normalize ? field.normalize(value) : value;
-    ArraySequence<ShrdPtr<const File>> matches;
-    visit_files(root, [&](const auto& file) {
-        if (file != root && field.extract(*file) == query)
-            matches.push_back(file);
+const ArraySequence<ShrdPtr<const File>>& VirtualFileSystem::get_or_collect_files() {
+    if (indexed_files) return *indexed_files;
+    ArraySequence<ShrdPtr<const File>> entries;
+    visit_files(root, [&](const ShrdPtr<const File>& file) {
+        if (file != root) entries.push_back(file);
     });
-    DynamicArray<ShrdPtr<const File>> result(matches.size());
-    for (int i = 0; i < result.get_size(); ++i)
-        result.set(i, matches[i]);
-    return result;
+    return indexed_files.emplace(std::move(entries));
 }
