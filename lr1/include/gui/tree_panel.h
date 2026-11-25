@@ -55,7 +55,7 @@ class TreePanel : public ITreePanel {
         BinarySearchTree<T> tree;
         BinarySearchTree<T> second; // Результат map/where/поддерева или дерево для поиска вхождения
         std::string second_title = "пока пусто";
-        Option<T> highlighted;
+        std::optional<T> highlighted;
         ArraySequence<LogEntry> log;
         bool scroll_log = false;
 
@@ -122,7 +122,7 @@ class TreePanel : public ITreePanel {
                     T value = parse_input();
                     int before = tree.get_count();
                     tree += value;
-                    highlighted = Option<T>::Some(value);
+                    highlighted = value;
                     add_log(tree.get_count() > before ? "Вставлено: " + GuiValue<T>::label(value)
                                                       : "Уже есть: " + GuiValue<T>::label(value));
                 });
@@ -132,7 +132,7 @@ class TreePanel : public ITreePanel {
                 run_action("Удаление", [&] {
                     T value = parse_input();
                     bool removed = tree.remove(value);
-                    highlighted = Option<T>::None();
+                    highlighted.reset();
                     add_log((removed ? "Удалено: " : "Нет элемента: ") + GuiValue<T>::label(value));
                 });
             }
@@ -143,7 +143,7 @@ class TreePanel : public ITreePanel {
                     highlighted = tree.try_find(value);
                     if (highlighted.has_value()) {
                         add_log("Найдено на позиции " + std::to_string(tree.index_of(value))
-                                + ": " + ValueCodec<T>::to_string(highlighted.get_value()));
+                                + ": " + ValueCodec<T>::to_string(highlighted.value()));
                     } else {
                         add_log("Не найдено: " + GuiValue<T>::label(value));
                     }
@@ -156,7 +156,7 @@ class TreePanel : public ITreePanel {
             if (ImGui::Button("tree[i] - i-й по возрастанию")) {
                 run_action("Индекс", [&] {
                     const T& value = tree[index_input];
-                    highlighted = Option<T>::Some(value);
+                    highlighted = value;
                     add_log("tree[" + std::to_string(index_input) + "] = "
                             + ValueCodec<T>::to_string(value));
                 });
@@ -184,7 +184,7 @@ class TreePanel : public ITreePanel {
                         }
                     });
                     tree = std::move(filled);
-                    highlighted = Option<T>::None();
+                    highlighted.reset();
                     char message[160];
                     std::snprintf(message, sizeof(message),
                                   "Случайное дерево: %d элементов, высота %d, %.2f мс",
@@ -199,7 +199,7 @@ class TreePanel : public ITreePanel {
             ImGui::SameLine();
             if (ImGui::Button("Очистить")) {
                 tree.clear();
-                highlighted = Option<T>::None();
+                highlighted.reset();
                 add_log("Дерево очищено");
             }
         }
@@ -309,7 +309,7 @@ class TreePanel : public ITreePanel {
                 run_action("Чтение", [&] {
                     tree = BinarySearchTree<T>::from_string(string_buffer.data(),
                                                             TraversalFormat(format_input));
-                    highlighted = Option<T>::None();
+                    highlighted.reset();
                     add_log("Прочитано в основное: " + std::to_string(tree.get_count())
                             + " элементов");
                 });
@@ -384,7 +384,7 @@ class TreePanel : public ITreePanel {
             }
 
             int highlight = -1;
-            if (is_main && highlighted.has_value()) highlight = shown.index_of(highlighted.get_value());
+            if (is_main && highlighted.has_value()) highlight = shown.index_of(highlighted.value());
 
             int hovered = -1;
             ImVec2 mouse = ImGui::GetIO().MousePos;
@@ -421,7 +421,7 @@ class TreePanel : public ITreePanel {
                 if (ImGui::IsMouseClicked(ImGuiMouseButton_Left)) {
                     std::snprintf(value_input, sizeof(value_input), "%s",
                                   nodes[hovered].full.c_str());
-                    if (is_main) highlighted = Option<T>::Some(shown.get(hovered));
+                    if (is_main) highlighted = shown.get(hovered);
                 }
             }
             if (ImGui::IsWindowHovered() && ImGui::GetIO().KeyCtrl
@@ -482,7 +482,7 @@ class TreePanel : public ITreePanel {
                     ImGui::SameLine();
                     if (ImGui::Button("Сделать основным")) {
                         tree = second;
-                        highlighted = Option<T>::None();
+                        highlighted.reset();
                         add_log("Второе дерево стало основным");
                     }
                     draw_tree(second, false);

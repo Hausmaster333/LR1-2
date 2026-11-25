@@ -20,8 +20,6 @@ class Complex {
         }
         bool operator!=(const Complex& other) const { return !(*this == other); }
 
-        // Сначала по модулю, при равных модулях по (real, imag): полный порядок для BST,
-        // иначе 1+0i и 0+1i считались бы одним элементом
         bool operator<(const Complex& other) const {
             double this_modulus = modulus();
             double other_modulus = other.modulus();

@@ -10,10 +10,9 @@
 
 namespace fs = std::filesystem;
 
-
 ArraySequence<std::string> paths(const DynamicArray<ShrdPtr<const File>>& files) {
     ArraySequence<std::string> result;
-    for (int index = 0; index < files.get_size(); index++) {
+    for (std::size_t index = 0; index < files.get_size(); index++) {
         result.push_back(files.get(index)->get_path());
     }
     std::sort(result.begin(), result.end());
@@ -23,7 +22,7 @@ ArraySequence<std::string> paths(const DynamicArray<ShrdPtr<const File>>& files)
 void collect_directories(const VirtualFileSystem& vfs, const std::string& path, ArraySequence<std::string>& out) {
     out.push_back(path);
     DynamicArray<ShrdPtr<const File>> children = vfs.list(path);
-    for (int index = 0; index < children.get_size(); index++) {
+    for (std::size_t index = 0; index < children.get_size(); index++) {
         if (children.get(index)->is_directory()) {
             collect_directories(vfs, children.get(index)->get_path(), out);
         }
@@ -51,7 +50,7 @@ class SearchTest : public ::testing::Test {
             vfs.attach_file((real_dir / "one.txt").u8string(), directory, name);
         }
 
-        ArraySequence<std::string> find(SearchCriterion field, const std::string& value) {
+        ArraySequence<std::string> find(SearchCriterion<ShrdPtr<const File>, std::string> field, const std::string& value) {
             ArraySequence<std::string> by_scan = paths(vfs.find_files(field, value, SearchMethod::FullScan));
             ArraySequence<std::string> by_index = paths(vfs.find_files(field, value, SearchMethod::Index));
             EXPECT_EQ(by_scan, by_index) << value;
@@ -77,7 +76,7 @@ TEST_F(SearchTest, ByExtensionIgnoresCaseAndDot) {
     attach("/", "b.txt");
     attach("/", "c.log");
     for (const char* query : {"txt", ".txt", "TXT"}) {
-        EXPECT_EQ(find(by_extension, query), (ArraySequence<std::string>{"/a.TXT", "/b.txt"}));
+        EXPECT_EQ(find(by_extension, normalize_extension(query)), (ArraySequence<std::string>{"/a.TXT", "/b.txt"}));
     }
 }
 
@@ -126,8 +125,8 @@ TEST_F(SearchTest, IndexMatchesFullScanAfterRandomOperations) {
         std::string directory = directories[pick(directories.size())];
         std::string name = names[pick(5)];
 
-        ArraySequence<std::string> files = paths(vfs.find_files(by_extension, "txt", SearchMethod::FullScan));
-        ArraySequence<std::string> logs = paths(vfs.find_files(by_extension, "log", SearchMethod::FullScan));
+        ArraySequence<std::string> files = paths(vfs.find_files(by_extension, std::string{"txt"}, SearchMethod::FullScan));
+        ArraySequence<std::string> logs = paths(vfs.find_files(by_extension, std::string{"log"}, SearchMethod::FullScan));
         for (const auto& path : logs) files.push_back(path);
 
         try {
@@ -148,27 +147,104 @@ TEST_F(SearchTest, IndexMatchesFullScanAfterRandomOperations) {
 TEST(SearchIndex, BuildsOnFirstRequestAndReusesCustomCriterion) {
     static int calls;
     calls = 0;
-    SearchCriterion by_path{[](const File& file) -> std::optional<std::string> {
+    SearchCriterion<ShrdPtr<const File>, std::string> by_path{[](const ShrdPtr<const File>& file) -> std::optional<std::string> {
         ++calls;
-        return file.get_path();
+        return file->get_path();
     }};
     VirtualFileSystem vfs;
     vfs.touch("/first");
-    EXPECT_EQ(vfs.find_files(by_path, "/first", SearchMethod::FullScan).get_size(), 1);
+    EXPECT_EQ(vfs.find_files(by_path, std::string{"/first"}, SearchMethod::FullScan).get_size(), 1u);
     calls = 0;
     vfs.touch("/second");
     EXPECT_EQ(calls, 0);
-    EXPECT_EQ(vfs.find_files(by_path, "/second", SearchMethod::Index).get_size(), 1);
+    EXPECT_EQ(vfs.find_files(by_path, std::string{"/second"}, SearchMethod::Index).get_size(), 1u);
     EXPECT_EQ(calls, 2);
     calls = 0;
-    EXPECT_EQ(vfs.find_files(by_path, "/first", SearchMethod::Index).get_size(), 1);
+    EXPECT_EQ(vfs.find_files(by_path, std::string{"/first"}, SearchMethod::Index).get_size(), 1u);
     EXPECT_EQ(calls, 0);
     vfs.rename("/second", "renamed");
-    EXPECT_EQ(vfs.find_files(by_path, "/second", SearchMethod::Index).get_size(), 0);
-    EXPECT_EQ(vfs.find_files(by_path, "/renamed", SearchMethod::Index).get_size(), 1);
+    EXPECT_EQ(vfs.find_files(by_path, std::string{"/second"}, SearchMethod::Index).get_size(), 0u);
+    EXPECT_EQ(vfs.find_files(by_path, std::string{"/renamed"}, SearchMethod::Index).get_size(), 1u);
     calls = 0;
     vfs.build_index(by_path);
     EXPECT_EQ(calls, 2);
-    EXPECT_EQ(vfs.find_files(by_path, "/renamed", SearchMethod::Index).get_size(), 1);
+    EXPECT_EQ(vfs.find_files(by_path, std::string{"/renamed"}, SearchMethod::Index).get_size(), 1u);
     EXPECT_EQ(calls, 2);
+}
+
+TEST(SearchIndex, StringAndNumericIndexesFollowParentChanges) {
+    VirtualFileSystem vfs;
+    vfs.make_directory("/docs");
+    vfs.make_directory("/archive");
+    vfs.touch("/docs/report.PDF");
+    const auto docs = vfs.get("/docs").get_id();
+    const auto archive = vfs.get("/archive").get_id();
+    vfs.build_index(by_parent);
+    vfs.build_index(by_name);
+    EXPECT_EQ(vfs.find_files(by_parent, docs, SearchMethod::Index).get_size(), 1u);
+    vfs.move("/docs/report.PDF", "/archive");
+    for (auto method : {SearchMethod::Index, SearchMethod::FullScan}) {
+        EXPECT_EQ(vfs.find_files(by_parent, docs, method).get_size(), 0u);
+        EXPECT_EQ(paths(vfs.find_files(by_parent, archive, method)),
+                  (ArraySequence<std::string>{"/archive/report.PDF"}));
+        EXPECT_EQ(vfs.find_files(by_name, std::string{"report.PDF"}, method).get_size(), 1u);
+    }
+}
+
+TEST(SearchIndex, CriteriaShareOneFileSnapshotUntilMutation) {
+    VirtualFileSystem vfs;
+    vfs.touch("/note.txt");
+    auto file = vfs.regular_file("/note.txt");
+    const auto owners = file.use_count();
+    vfs.build_index(by_name);
+    EXPECT_EQ(file.use_count(), owners + 1);
+    vfs.build_index(by_parent);
+    vfs.build_index(by_extension);
+    EXPECT_EQ(file.use_count(), owners + 1);
+    vfs.touch("/a.txt");
+    EXPECT_EQ(file.use_count(), owners);
+    auto found = vfs.find_files(by_name, std::string{"note.txt"}, SearchMethod::Index);
+    ASSERT_EQ(found.get_size(), 1u);
+    EXPECT_EQ(found.get(0)->get_id(), file->get_id());
+}
+
+TEST(SearchIndex, RebuildsKeysDependingOnSiblings) {
+    SearchCriterion<ShrdPtr<const File>, int> by_siblings{[](const ShrdPtr<const File>& file) -> std::optional<int> {
+        return file->get_parent()->get_child_count();
+    }};
+    VirtualFileSystem vfs;
+    vfs.touch("/a");
+    EXPECT_EQ(vfs.find_files(by_siblings, 1, SearchMethod::Index).get_size(), 1u);
+    vfs.touch("/b");
+    EXPECT_EQ(vfs.find_files(by_siblings, 1, SearchMethod::Index).get_size(), 0u);
+    EXPECT_EQ(paths(vfs.find_files(by_siblings, 2, SearchMethod::Index)),
+              paths(vfs.find_files(by_siblings, 2, SearchMethod::FullScan)));
+}
+
+TEST(SearchIndex, ThrowingExtractorCannotInterruptMutationOrPublishPartialIndex) {
+    SearchCriterion<ShrdPtr<const File>, std::string> checked_name{[](const ShrdPtr<const File>& file) -> std::optional<std::string> {
+        if (file->get_name() == "bad") throw std::invalid_argument("bad key");
+        return file->get_name();
+    }};
+    VirtualFileSystem vfs;
+    vfs.touch("/a");
+    vfs.build_index(checked_name);
+    EXPECT_TRUE(vfs.touch("/bad"));
+    EXPECT_THROW(vfs.find_files(checked_name, std::string{"a"}, SearchMethod::Index), std::invalid_argument);
+    EXPECT_EQ(vfs.find_files(by_name, std::string{"bad"}, SearchMethod::Index).get_size(), 1u);
+    vfs.remove("/bad");
+    EXPECT_EQ(vfs.find_files(checked_name, std::string{"a"}, SearchMethod::Index).get_size(), 1u);
+}
+
+TEST(SearchIndex, SavingTextInvalidatesContentKeys) {
+    SearchCriterion<ShrdPtr<const File>, long long> by_size{[](const ShrdPtr<const File>& file) -> std::optional<long long> {
+        if (file->kind() != FileKind::Regular) return std::nullopt;
+        return static_cast<const RegularFile&>(*file).get_content().get_size();
+    }};
+    VirtualFileSystem vfs;
+    vfs.touch("/note");
+    ASSERT_EQ(vfs.find_files(by_size, 0LL, SearchMethod::Index).get_size(), 1u);
+    vfs.save_text("/note", vfs.get("/note").get_id(), "hello");
+    EXPECT_EQ(vfs.find_files(by_size, 0LL, SearchMethod::Index).get_size(), 0u);
+    EXPECT_EQ(vfs.find_files(by_size, 5LL, SearchMethod::Index).get_size(), 1u);
 }

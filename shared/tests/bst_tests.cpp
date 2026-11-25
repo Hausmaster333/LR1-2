@@ -22,7 +22,7 @@ namespace {
 
     ArraySequence<int> to_sequence(const DynamicArray<int>& array) {
         ArraySequence<int> result;
-        for (int idx = 0; idx < array.get_size(); idx++) result.push_back(array.get(idx));
+        for (std::size_t idx = 0; idx < array.get_size(); idx++) result.push_back(array.get(idx));
         return result;
     }
 
@@ -48,8 +48,8 @@ namespace {
     class MyBFS {
         private:
             DynamicArray<Node> queue{1};
-            int head = 0;
-            int tail = 0;
+            std::size_t head = 0;
+            std::size_t tail = 0;
 
             void enqueue(Node node) {
                 if (!node) return;
@@ -160,7 +160,7 @@ TEST(BstBasic, RemoveLeafAndNodeWithOneChild) {
 TEST(BstBasic, TryFind) {
     BinarySearchTree<int> tree = make_tree({1, 2, 3});
     EXPECT_TRUE(tree.try_find(2).has_value());
-    EXPECT_EQ(tree.try_find(2).get_value(), 2);
+    EXPECT_EQ(tree.try_find(2).value(), 2);
     EXPECT_FALSE(tree.try_find(9).has_value());
 }
 
@@ -230,8 +230,8 @@ TEST(BstBalance, RandomOperationsMatchStdSet) {
     ASSERT_EQ(tree.get_count(), static_cast<int>(reference.size()));
     EXPECT_TRUE(height_is_avl(tree.get_height(), tree.get_count()));
     const auto ordered = tree.to_array();
-    ASSERT_EQ(ordered.get_size(), static_cast<int>(reference.size()));
-    int index = 0;
+    ASSERT_EQ(ordered.get_size(), reference.size());
+    std::size_t index = 0;
     for (int value : reference) EXPECT_EQ(ordered.get(index++), value);
 }
 

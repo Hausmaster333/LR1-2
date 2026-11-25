@@ -4,7 +4,6 @@
 #include <string>
 #include <utility>
 
-// Строки хранит std::string, наружу они отдаются как char*, как в задании; nullptr даёт пустую строку
 inline std::string string_or_empty(const char* source) {
     return source == nullptr ? std::string() : std::string(source);
 }
@@ -41,8 +40,6 @@ class Person {
         Person(const Person& other) = default;
         Person(Person&& other) noexcept = default;
         Person& operator=(Person&& other) noexcept = default;
-
-        // Сначала копия, потом перемещение: если копирование бросит, объект не изменится
         Person& operator=(const Person& other) {
             Person copy(other);
             return *this = std::move(copy);

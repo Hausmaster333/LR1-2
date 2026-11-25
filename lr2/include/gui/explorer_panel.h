@@ -8,6 +8,8 @@
 #include "vfs/virtual_file_system.h"
 #include <cstdio>
 #include <functional>
+#include <algorithm>
+#include <climits>
 #include <string>
 
 namespace gui {
@@ -220,7 +222,7 @@ class ExplorerPanel {
             if (!open || leaf) return;
 
             DynamicArray<ShrdPtr<const File>> children = directory.list();
-            for (int position = 0; position < children.get_size(); position++) {
+            for (std::size_t position = 0; position < children.get_size(); position++) {
                 const ShrdPtr<const File>& child = children.get(position);
                 if (!child->is_directory()) break;
                 draw_tree(static_cast<const Directory&>(*child));
@@ -260,16 +262,17 @@ class ExplorerPanel {
                 drop_target(gui::parent_path(current));
             }
 
+            const int rows = static_cast<int>(std::min<std::size_t>(entries.get_size(), INT_MAX - 1));
             int target = -1;
             if (scroll_to_selected) {
-                for (int row = 0; row < entries.get_size(); row++) {
+                for (int row = 0; row < rows; row++) {
                     if (entries.get(row)->get_name() == selected) target = row;
                 }
                 scroll_to_selected = false;
             }
 
             ImGuiListClipper clipper;
-            clipper.Begin(entries.get_size());
+            clipper.Begin(rows);
             if (target >= 0) clipper.IncludeItemByIndex(target);
             while (clipper.Step()) {
                 for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++) {

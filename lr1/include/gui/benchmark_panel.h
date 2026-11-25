@@ -17,9 +17,8 @@ class BenchmarkPanel {
         char csv_path[256] = "lr1/benchmarks/results.csv";
         bool shown_operations[OPERATION_COUNT] = {true, true, true, true, true};
         bool show_set = true;
-        int plot_mode = 1; // 0 - общее время, 1 - время на элемент
+        int plot_mode = 1;
 
-        // Значение для графика: мс или нс на элемент; NaN - точки нет
         double plot_value(const SizeResult& result, double ms) const {
             if (std::isnan(ms)) return NAN;
             return plot_mode == 0 ? ms : ms * 1e6 / static_cast<double>(result.size);

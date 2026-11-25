@@ -80,7 +80,7 @@ void visit_files(const ShrdPtr<const File>& file, const F& visit) {
     visit(file);
     if (file->is_directory()) {
         auto children = static_cast<const Directory&>(*file).list();
-        for (int i = 0; i < children.get_size(); ++i)
+        for (std::size_t i = 0; i < children.get_size(); ++i)
             visit_files(children.get(i), visit);
     }
 }

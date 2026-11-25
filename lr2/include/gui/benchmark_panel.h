@@ -15,9 +15,8 @@ class BenchmarkPanel {
         int max_exponent = 6;
 
         char csv_path[256] = "lr2/benchmarks/results.csv";
-        bool per_file = false; // Время построения на один файл вместо общего
+        bool per_file = false;
 
-        // Одна линия графика; точки без замера (NaN) пропускаются
         static void plot_series(const char* label, const ArraySequence<SizeResult>& data,
                                 double (*value_of)(const SizeResult&), bool per_file) {
             ArraySequence<double> xs;

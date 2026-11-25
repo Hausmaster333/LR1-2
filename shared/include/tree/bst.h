@@ -5,7 +5,7 @@
 #include "core/icollection.h"
 #include "core/ienumerator.h"
 #include "core/key_value.h"
-#include "core/option.h"
+#include <optional>
 #include "core/value_codec.h"
 #include "tree/traversal.h"
 #include "ptr/shrd_ptr.h"
@@ -78,7 +78,7 @@ class BinarySearchTree : public ICollection<TreeEntry<K, V>>, public IEnumerable
 
         static NodePtr clone(const NodePtr& node);
         static bool same_structure(const NodePtr& first, const NodePtr& second);
-        static NodePtr build_balanced(const DynamicArray<NodePtr>& sorted, int begin, int end);
+        static NodePtr build_balanced(const DynamicArray<NodePtr>& sorted, std::size_t begin, std::size_t end);
 
         static void write_subtree(const NodePtr& node, const TraversalFormat& format, std::string& out);
         static NodePtr read_subtree(const std::string& text, std::size_t& pos, const TraversalFormat& format, int depth);
@@ -107,7 +107,7 @@ class BinarySearchTree : public ICollection<TreeEntry<K, V>>, public IEnumerable
         bool insert(Entry value);
         bool remove(const K& key);
         void clear();
-        Option<Entry> try_find(const K& key) const;
+        std::optional<Entry> try_find(const K& key) const;
         const Entry& find(const K& key) const;
         auto& find_value(const K& key);
 

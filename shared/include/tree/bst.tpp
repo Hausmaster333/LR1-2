@@ -251,10 +251,10 @@ bool BinarySearchTree<K, V>::same_structure(const NodePtr& first, const NodePtr&
 
 template <class K, class V>
 typename BinarySearchTree<K, V>::NodePtr
-BinarySearchTree<K, V>::build_balanced(const DynamicArray<NodePtr>& sorted, int begin, int end) {
+BinarySearchTree<K, V>::build_balanced(const DynamicArray<NodePtr>& sorted, std::size_t begin, std::size_t end) {
     if (begin >= end) return {};
 
-    int middle = begin + (end - begin) / 2;
+    std::size_t middle = begin + (end - begin) / 2;
     NodePtr node = sorted.get(middle);
     node->left = build_balanced(sorted, begin, middle);
     node->right = build_balanced(sorted, middle + 1, end);
@@ -288,9 +288,10 @@ void BinarySearchTree<K, V>::clear() {
 }
 
 template <class K, class V>
-Option<TreeEntry<K, V>> BinarySearchTree<K, V>::try_find(const K& key) const {
+std::optional<TreeEntry<K, V>> BinarySearchTree<K, V>::try_find(const K& key) const {
     const NodePtr& node = find_link(root, key);
-    return node ? Option<Entry>::Some(node->value) : Option<Entry>::None();
+    if (node) return node->value;
+    return std::nullopt;
 }
 
 template <class K, class V>
@@ -416,7 +417,7 @@ template <class K, class V>
 template <template <class> class Traversal, class... Args>
 DynamicArray<TreeEntry<K, V>> BinarySearchTree<K, V>::to_array(const Args&... args) const {
     DynamicArray<Entry> result(get_count());
-    int index = 0;
+    std::size_t index = 0;
     auto walker = walk<Traversal>(args...);
     while (ReadOnlyNode node = walker.next())
         result.set(index++, node.value());
@@ -456,14 +457,14 @@ BinarySearchTree<K, V>::read_subtree(const std::string& text, std::size_t& pos, 
     if (depth > MAX_PARSE_DEPTH) throw std::length_error("Tree in string is too deep");
     pos += format.get_literal(0).size();
 
-    Option<Entry> value;
+    std::optional<Entry> value;
     NodePtr left;
     NodePtr right;
     const TraversalOrder& order = format.get_order();
     for (int index = 0; index < 3; index++) {
         TreePart part = order.get(index);
         if (part == TreePart::Root) {
-            value = Option<Entry>::Some(ValueCodec<Entry>::from_string(format.read_value(text, pos)));
+            value.emplace(ValueCodec<Entry>::from_string(format.read_value(text, pos)));
         } else if (part == TreePart::Left) {
             left = read_subtree(text, pos, format, depth + 1);
         } else {
@@ -476,7 +477,7 @@ BinarySearchTree<K, V>::read_subtree(const std::string& text, std::size_t& pos, 
         pos += format.get_literal(index + 1).size();
     }
 
-    auto node = NodePtr::make(value.get_value());
+    auto node = NodePtr::make(value.value());
     node->left = std::move(left);
     node->right = std::move(right);
     update(node);
@@ -511,7 +512,7 @@ BinarySearchTree<K, V> BinarySearchTree<K, V>::from_string(const std::string& te
 
     if (!is_balanced(result.root)) {
         DynamicArray<NodePtr> sorted(result.get_count());
-        int index = 0;
+        std::size_t index = 0;
         auto walker = result.walk();
         while (ReadOnlyNode node = walker.next())
             sorted.set(index++, node.node);

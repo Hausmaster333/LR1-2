@@ -72,7 +72,7 @@ inline SizeResult measure(long long size, const Params& params) {
     SizeResult result;
     result.size = size;
 
-    ArraySequence<ShrdPtr<RegularFile>> files;
+    ArraySequence<ShrdPtr<const File>> files;
     files.reserve(count);
     for (int number = 0; number < count; number++) {
         files.push_back(ShrdPtr<RegularFile>::make(file_name(number), UnqPtr<GeneratedSource>::make()));
@@ -83,10 +83,15 @@ inline SizeResult measure(long long size, const Params& params) {
         if (kind == DESCENDING) std::reverse(order.begin(), order.end());
         if (kind == RANDOM) std::shuffle(order.begin(), order.end(), random);
 
-        FileIndex index(by_name);
+        ArraySequence<ShrdPtr<const File>> ordered;
+        ordered.reserve(count);
+        for (int number : order) ordered.push_back(files[number]);
         std::size_t memory_before = get_process_memory();
-        result.build_ms[kind] = time_ms([&] { for (int number : order) index.add(files[number]); });
+        const auto start = std::chrono::steady_clock::now();
+        auto index = build_index(ordered, by_name);
+        result.build_ms[kind] = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
         std::size_t memory_after = get_process_memory();
+        keep(index.find(files[0]->get_name()).get_size());
         if (kind == ASCENDING && memory_before != 0 && memory_after > memory_before) {
             result.index_memory_mb = (memory_after - memory_before) / (1024.0 * 1024.0);
         }

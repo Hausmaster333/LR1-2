@@ -28,12 +28,15 @@ public:
     ListSequence(const ListSequence&) = delete;
     ListSequence& operator=(const ListSequence&) = delete;
 
-    ~ListSequence() {
+    ~ListSequence() { clear(); }
+
+    void clear() {
         while (head) {
             Node* node = head;
             head = head->next;
             delete node;
         }
+        tail = nullptr;
     }
 
     Iterator begin() { return Iterator(head); }

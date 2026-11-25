@@ -6,6 +6,8 @@
 #include "gui/explorer_panel.h"
 #include "imgui.h"
 #include "vfs/virtual_file_system.h"
+#include <algorithm>
+#include <climits>
 #include <string>
 
 class SearchPanel {
@@ -18,26 +20,27 @@ class SearchPanel {
         double scan_ms = 0;
         double index_ms = 0;
 
-        double average_ms(SearchCriterion search_field, SearchMethod method) {
+        double average_ms(SearchCriterion<ShrdPtr<const File>, std::string> search_field, const std::string& key, SearchMethod method) {
             double total = 0;
             int runs = 0;
             while (total < 20.0 && runs < 1000) {
-                total += time_ms([&] { found = vfs.find_files(search_field, query, method); });
+                total += time_ms([&] { found = vfs.find_files(search_field, key, method); });
                 runs++;
             }
             return total / runs;
         }
 
         void search() {
-            SearchCriterion search_field = field == 0 ? by_name : by_extension;
-            scan_ms = average_ms(search_field, SearchMethod::FullScan);
-            vfs.find_files(search_field, query, SearchMethod::Index); // Построение индекса вне замера.
-            index_ms = average_ms(search_field, SearchMethod::Index);
+            auto search_field = field == 0 ? by_name : by_extension;
+            const std::string key = field == 0 ? std::string(query) : normalize_extension(query);
+            scan_ms = average_ms(search_field, key, SearchMethod::FullScan);
+            vfs.find_files(search_field, key, SearchMethod::Index);
+            index_ms = average_ms(search_field, key, SearchMethod::Index);
             searched = true;
         }
 
         void draw_timing() {
-            ImGui::Text("Найдено: %d", found.get_size());
+            ImGui::Text("Найдено: %zu", found.get_size());
             ImGui::SameLine(0, 30);
             ImGui::Text("Полный обход: %.3f мс", scan_ms);
             ImGui::SameLine(0, 30);
@@ -67,15 +70,16 @@ class SearchPanel {
             ImGui::SameLine();
             if (ImGui::Button("Найти") || submitted) search();
             ImGui::TextDisabled("Обход проверяет каждый файл - O(n). Индекс - словарь на AVL-дереве "
-                                "«ключ -> множество файлов» - O(log n) плюс число найденных.");
+                                "«ключ -> позиции файлов» - O(log n) плюс число найденных.");
             if (!searched) return "";
 
             draw_timing();
             ImGui::Separator();
             std::string reveal;
             ImGui::BeginChild("##found");
+            const int rows = static_cast<int>(std::min<std::size_t>(found.get_size(), INT_MAX - 1));
             ImGuiListClipper clipper;
-            clipper.Begin(found.get_size());
+            clipper.Begin(rows);
             while (clipper.Step()) {
                 for (int row = clipper.DisplayStart; row < clipper.DisplayEnd; row++) {
                     std::string path = found.get(row)->get_path();

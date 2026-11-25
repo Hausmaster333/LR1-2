@@ -52,7 +52,7 @@ TEST(BenchmarkTest, CsvRoundTripKeepsValuesAndGaps) {
     full.scan_ms = 0.5;
     full.index_ms = 0.001;
     full.index_memory_mb = 12.0;
-    SizeResult partial; // Прерванный замер: всё, кроме размера, не измерено
+    SizeResult partial;
     partial.size = 2000;
 
     std::string path = (std::filesystem::temp_directory_path() / "vfs_benchmark_test.csv").u8string();

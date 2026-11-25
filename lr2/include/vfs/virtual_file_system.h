@@ -2,10 +2,11 @@
 #define VIRTUAL_FILE_SYSTEM_H
 
 #include "core/list_sequence.h"
-#include "vfs/file_index.h"
+#include "core/index.h"
 #include "vfs/file_system_reader.h"
 #include "vfs/file.h"
 #include <string>
+#include <any>
 
 enum class SearchMethod { FullScan, Index };
 
@@ -16,13 +17,23 @@ class VirtualFileSystem {
     private:
         ShrdPtr<Directory> root;
         ListSequence<FileSystemAccess*> clients;
-        ListSequence<FileIndex> indexes;
-        FileIndex& create_index(SearchCriterion criterion);
+        ListSequence<std::any> indexes;
+        std::optional<ArraySequence<ShrdPtr<const File>>> indexed_files;
+
+        void invalidate_indexes();
+
+        template <class Key>
+        struct CachedIndex {
+            SearchCriterion<ShrdPtr<const File>, Key> criterion;
+            Index<Key> index;
+        };
+
+        template <class Key>
+        const Index<Key>& get_or_build_index(SearchCriterion<ShrdPtr<const File>, Key> criterion, bool rebuild = false);
+
+        const ArraySequence<ShrdPtr<const File>>& get_or_collect_files();
 
         void attach_entry(const ShrdPtr<Directory>& parent, const ShrdPtr<File>& child);
-        void index_entry(const ShrdPtr<const File>& file);
-        void unindex_entry(const ShrdPtr<const File>& file);
-
         static ShrdPtr<Directory> build_directory(const std::filesystem::path& path, const IFileSystemReader& reader);
 
         ShrdPtr<File> find(const std::string& path, bool follow_last = true) const;
@@ -63,8 +74,11 @@ class VirtualFileSystem {
         void move(const std::string& path, const std::string& target_directory);
         void rename(const std::string& path, const std::string& new_name);
 
-        void build_index(SearchCriterion criterion);
-        DynamicArray<ShrdPtr<const File>> find_files(SearchCriterion criterion, const std::string& value, SearchMethod method);
+        template <class Key>
+        void build_index(SearchCriterion<ShrdPtr<const File>, Key> criterion) { get_or_build_index(criterion, true); }
+
+        template <class Key>
+        DynamicArray<ShrdPtr<const File>> find_files(SearchCriterion<ShrdPtr<const File>, Key> criterion, const Key& key, SearchMethod method);
 };
 
 class FileSystemAccess {
@@ -93,5 +107,7 @@ public:
 
     ~FileSystemAccess() { vfs->clients.remove(this); }
 };
+
+#include "vfs/virtual_file_system.tpp"
 
 #endif

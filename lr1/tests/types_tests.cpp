@@ -3,8 +3,6 @@
 #include <gtest/gtest.h>
 #include <string>
 
-// ---------- Кодеки значений ----------
-
 TEST(Codec, Int) {
     EXPECT_EQ(ValueCodec<int>::to_string(-42), "-42");
     EXPECT_EQ(ValueCodec<int>::from_string("-42"), -42);
@@ -55,9 +53,6 @@ TEST(Codec, PersonWrongFieldCount) {
     EXPECT_THROW(ValueCodec<Teacher>::from_string("1 2 A B C 3 x extra"), std::invalid_argument); // Лишнее поле
 }
 
-// ---------- Типы ----------
-
-// Complex сравниваются по модулю, но разные числа с равным модулем всё равно упорядочены
 TEST(Types, ComplexTotalOrder) {
     Complex one(1, 0);
     Complex unit_imag(0, 1);
@@ -72,7 +67,6 @@ TEST(Types, PersonCopyAndFullName) {
     EXPECT_EQ(copy.get_full_name(), "Ivan Ivanovich Ivanov");
 }
 
-// У пустого Person имена - nullptr: копия не должна звать strlen(nullptr)
 TEST(Types, EmptyPersonCopy) {
     Person empty;
     Person empty_copy = empty;
@@ -82,8 +76,6 @@ TEST(Types, EmptyPersonCopy) {
     empty_copy = person;
     EXPECT_STREQ(empty_copy.get_first_name(), "Ivan");
 }
-
-// ---------- Деревья разных типов ----------
 
 TEST(TypedTrees, DoubleRoundTrip) {
     BinarySearchTree<double> doubles;
@@ -107,16 +99,15 @@ TEST(TypedTrees, StringsInAlphabeticalOrder) {
     EXPECT_EQ(words.get(0), "apple");
 }
 
-// Студенты сравниваются только по id: остальные поля при поиске не важны
 TEST(TypedTrees, StudentsKeyedById) {
     BinarySearchTree<Student> students;
     students.insert(Student({2, 1}, "B", "B", "B", 2, "G2"));
     students.insert(Student({1, 5}, "A", "A", "A", 1, "G1"));
     EXPECT_FALSE(students.insert(Student({1, 5}, "Dup", "D", "D", 3, "G3")));
 
-    Option<Student> found = students.try_find(Student({1, 5}, "", "", "", 0, ""));
+    std::optional<Student> found = students.try_find(Student({1, 5}, "", "", "", 0, ""));
     ASSERT_TRUE(found.has_value());
-    EXPECT_STREQ(found.get_value().get_first_name(), "A");
+    EXPECT_STREQ(found.value().get_first_name(), "A");
 }
 
 TEST(TypedTrees, StudentsRoundTripAndMap) {

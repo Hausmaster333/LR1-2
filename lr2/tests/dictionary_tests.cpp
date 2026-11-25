@@ -5,12 +5,10 @@
 #include <string>
 #include "core/array_sequence.h"
 
-namespace {
-    ArraySequence<std::string> keys(UnqPtr<IEnumerator<KeyValue<std::string, int>>> iter) {
-        ArraySequence<std::string> result;
-        while (iter->move_next()) result.push_back(iter->get_current().key);
-        return result;
-    }
+ArraySequence<std::string> keys(UnqPtr<IEnumerator<KeyValue<std::string, int>>> iter) {
+    ArraySequence<std::string> result;
+    while (iter->move_next()) result.push_back(iter->get_current().key);
+    return result;
 }
 
 TEST(TreeDictionary, StartsEmpty) {
@@ -33,7 +31,7 @@ TEST(TreeDictionary, DuplicateKeyIsRejected) {
     TreeDictionary<std::string, int> dictionary;
     dictionary.add("a", 1);
     EXPECT_THROW(dictionary.add("a", 5), std::invalid_argument);
-    EXPECT_EQ(dictionary.get("a"), 1); // Старое значение не перезаписано
+    EXPECT_EQ(dictionary.get("a"), 1);
     EXPECT_EQ(dictionary.get_count(), 1);
 }
 
@@ -41,7 +39,7 @@ TEST(TreeDictionary, MissingKeyThrows) {
     TreeDictionary<std::string, int> dictionary;
     const TreeDictionary<std::string, int>& read_only = dictionary;
     EXPECT_THROW(dictionary.get("x"), std::out_of_range);
-    EXPECT_THROW(read_only.get("x"), std::out_of_range); // const-версия get
+    EXPECT_THROW(read_only.get("x"), std::out_of_range);
     EXPECT_THROW(dictionary.remove("x"), std::out_of_range);
 }
 
@@ -55,7 +53,6 @@ TEST(TreeDictionary, Remove) {
     EXPECT_EQ(dictionary.get_count(), 1);
 }
 
-// Так индекс дописывает файл в список по ключу: get() отдаёт ссылку на хранимое значение
 TEST(TreeDictionary, ValueChangesInPlace) {
     TreeDictionary<std::string, ArraySequence<int>> dictionary;
     dictionary.add("files", {});
@@ -71,7 +68,6 @@ TEST(TreeDictionary, EnumeratesInKeyOrder) {
               (ArraySequence<std::string>{"apple", "banana", "fig", "pear"}));
 }
 
-// Случайные add / get / remove повторяем на std::map: итог должен совпасть
 TEST(TreeDictionary, RandomOperationsMatchStdMap) {
     std::mt19937 random(7);
     std::uniform_int_distribution<int> keys(0, 500);

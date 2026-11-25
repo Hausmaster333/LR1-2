@@ -1,40 +1,42 @@
 #ifndef ARRAY_H
 #define ARRAY_H
 
+#include <cstddef>
 #include "core/ienumerator.h"
 #include "ptr/unq_ptr.h"
 
 template <class T>
 class DynamicArray {
     private:
-        UnqPtr<T[]> data; // Сам хранит длину и освобождает память
+        UnqPtr<T[]> data;
     public:
         DynamicArray();
-        DynamicArray(int size);
-        DynamicArray(const T* items, int count);
+        DynamicArray(std::size_t size);
+        DynamicArray(const T* items, std::size_t count);
         DynamicArray(const DynamicArray<T>& other);
+        DynamicArray(DynamicArray&&) noexcept = default;
 
         DynamicArray<T>& operator=(const DynamicArray<T>& other);
+        DynamicArray& operator=(DynamicArray&&) noexcept = default;
 
-        const T& get(int index) const;
+        const T& get(std::size_t index) const;
 
-        int get_size() const;
+        std::size_t get_size() const;
         T* raw_data() { return data.get(); }
         const T* raw_data() const { return data.get(); }
 
-        void set(int index, const T& value);
-        void set(int index, T&& value); // Забирает значение без копии: для ShrdPtr без атомарных ++/--
+        void set(std::size_t index, const T& value);
+        void set(std::size_t index, T&& value);
 
-        void resize(int newSize);
+        void resize(std::size_t new_size);
 
-        // Читает через get(): адрес данных не хранит, поэтому переживает resize() и не выходит
-        // за границы. Как и итераторы STL, не должен пережить сам массив.
         class Enumerator : public IEnumerator<T> {
             private:
                 const DynamicArray<T>& array;
-                int index;
+                std::size_t next = 0;
+                bool valid = false;
             public:
-                explicit Enumerator(const DynamicArray<T>& array) : array(array), index(-1) {}
+                explicit Enumerator(const DynamicArray<T>& array) : array(array) {}
 
                 bool move_next() override;
                 const T& get_current() const override;

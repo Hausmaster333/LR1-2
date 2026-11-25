@@ -8,8 +8,6 @@
 
 namespace fs = std::filesystem;
 
-// Каждый тест получает свою временную папку с настоящими файлами:
-//   a.txt ("hello"), b.log, data/c.txt, data/inner/d.txt
 class VfsTest : public ::testing::Test {
     protected:
         fs::path real_dir;
@@ -35,11 +33,10 @@ class VfsTest : public ::testing::Test {
 
         std::string real(const std::string& name) const { return (real_dir / name).u8string(); }
 
-        // Имена детей каталога в том порядке, в котором их отдаёт list()
         ArraySequence<std::string> names(const std::string& path) const {
             ArraySequence<std::string> result;
             DynamicArray<ShrdPtr<const File>> children = vfs.list(path);
-            for (int index = 0; index < children.get_size(); index++) {
+            for (std::size_t index = 0; index < children.get_size(); index++) {
                 result.push_back(children.get(index)->get_name());
             }
             return result;
@@ -77,18 +74,18 @@ TEST(FileSystemAccessTest, ClosingAClientReleasesOnlyItsDirectory) {
 
 TEST_F(VfsTest, MakeDirectory) {
     vfs.make_directory("/docs");
-    vfs.make_directory("/docs/2024/"); // '/' в конце допустим
+    vfs.make_directory("/docs/2024/");
     EXPECT_TRUE(vfs.get("/docs/2024").is_directory());
     EXPECT_EQ(vfs.get("/docs/2024").get_path(), "/docs/2024");
 }
 
 TEST_F(VfsTest, MakeDirectoryErrors) {
     vfs.make_directory("/docs");
-    EXPECT_THROW(vfs.make_directory("/docs"), std::invalid_argument);      // Уже есть
-    EXPECT_THROW(vfs.make_directory("/missing/x"), std::invalid_argument); // Нет родителя
-    EXPECT_NO_THROW(access.make_directory("docs2"));                         // От текущего каталога
-    EXPECT_THROW(vfs.make_directory("/.."), std::invalid_argument);        // ".." - не имя
-    EXPECT_THROW(vfs.make_directory("/"), std::invalid_argument);          // Пустое имя
+    EXPECT_THROW(vfs.make_directory("/docs"), std::invalid_argument);
+    EXPECT_THROW(vfs.make_directory("/missing/x"), std::invalid_argument);
+    EXPECT_NO_THROW(access.make_directory("docs2"));
+    EXPECT_THROW(vfs.make_directory("/.."), std::invalid_argument);
+    EXPECT_THROW(vfs.make_directory("/"), std::invalid_argument);
 }
 
 TEST_F(VfsTest, AttachFileReadsRealContent) {
@@ -110,10 +107,10 @@ TEST_F(VfsTest, OneRealFileUnderTwoNames) {
 
 TEST_F(VfsTest, AttachFileErrors) {
     vfs.attach_file(real("a.txt"), "/");
-    EXPECT_THROW(vfs.attach_file(real("a.txt"), "/"), std::invalid_argument);    // Имя занято
-    EXPECT_THROW(vfs.attach_file(real("nope.txt"), "/"), std::invalid_argument); // Нет такого файла
-    EXPECT_THROW(vfs.attach_file(real("data"), "/"), std::invalid_argument);     // Папка, не файл
-    EXPECT_THROW(vfs.attach_file(real("b.log"), "/a.txt"), std::invalid_argument); // Цель - не каталог
+    EXPECT_THROW(vfs.attach_file(real("a.txt"), "/"), std::invalid_argument);
+    EXPECT_THROW(vfs.attach_file(real("nope.txt"), "/"), std::invalid_argument);
+    EXPECT_THROW(vfs.attach_file(real("data"), "/"), std::invalid_argument);
+    EXPECT_THROW(vfs.attach_file(real("b.log"), "/a.txt"), std::invalid_argument);
 }
 
 TEST_F(VfsTest, ListsDirectoriesFirstThenAlphabetically) {
@@ -144,18 +141,17 @@ TEST_F(VfsTest, MoveTakesDirectoryContents) {
     EXPECT_TRUE(names("/docs").empty());
 }
 
-// /a, /a/b, /b: каждая операция ниже ошибочна, и после всех дерево такое же
 TEST_F(VfsTest, InvalidMovesKeepState) {
     vfs.make_directory("/a");
     vfs.make_directory("/a/b");
     vfs.make_directory("/b");
 
-    EXPECT_THROW(vfs.move("/a", "/a/b"), std::invalid_argument); // В собственного потомка
-    EXPECT_THROW(vfs.move("/a", "/a"), std::invalid_argument);   // В самого себя
-    EXPECT_THROW(vfs.move("/a/b", "/"), std::invalid_argument);  // "/b" уже есть
-    EXPECT_THROW(vfs.rename("/a", "b"), std::invalid_argument);  // "/b" уже есть
-    EXPECT_THROW(vfs.rename("/a", "x/y"), std::invalid_argument); // '/' в имени
-    EXPECT_THROW(vfs.move("/", "/a"), std::invalid_argument);     // Корень не двигается
+    EXPECT_THROW(vfs.move("/a", "/a/b"), std::invalid_argument);
+    EXPECT_THROW(vfs.move("/a", "/a"), std::invalid_argument);
+    EXPECT_THROW(vfs.move("/a/b", "/"), std::invalid_argument);
+    EXPECT_THROW(vfs.rename("/a", "b"), std::invalid_argument);
+    EXPECT_THROW(vfs.rename("/a", "x/y"), std::invalid_argument);
+    EXPECT_THROW(vfs.move("/", "/a"), std::invalid_argument);
     EXPECT_THROW(vfs.rename("/", "root"), std::invalid_argument);
 
     EXPECT_EQ(names("/"), (ArraySequence<std::string>{"a", "b"}));
@@ -166,16 +162,15 @@ TEST_F(VfsTest, RemoveFileAndDirectoryRecursively) {
     vfs.import_directory(real("data"), "/");
     vfs.attach_file(real("a.txt"), "/");
     vfs.remove("/a.txt");
-    vfs.remove("/data"); // Вместе с data/inner
+    vfs.remove("/data");
     EXPECT_TRUE(names("/").empty());
 }
 
 TEST_F(VfsTest, RemoveErrors) {
-    EXPECT_THROW(vfs.remove("/data"), std::invalid_argument); // Нет такого
+    EXPECT_THROW(vfs.remove("/data"), std::invalid_argument);
     EXPECT_THROW(vfs.remove("/"), std::invalid_argument);
 }
 
-// Узлы из list() - владельцы: после удаления узел жив, но отцеплен (родитель - WeakPtr)
 TEST_F(VfsTest, ListedNodeOutlivesRemoval) {
     vfs.import_directory(real("data"), "/");
     ShrdPtr<const File> data = vfs.list("/").get(0);
@@ -185,12 +180,11 @@ TEST_F(VfsTest, ListedNodeOutlivesRemoval) {
 
     vfs.remove("/data");
     EXPECT_FALSE(data->get_parent());
-    EXPECT_EQ(inner->get_path(), "/inner"); // Цепочка родителей обрывается на удалённом каталоге
+    EXPECT_EQ(inner->get_path(), "/inner");
     EXPECT_EQ(static_cast<const Directory&>(*data).get_child_count(), 2);
-    EXPECT_EQ(vfs.find_files(by_name, "d.txt", SearchMethod::Index).get_size(), 0);
+    EXPECT_EQ(vfs.find_files(by_name, std::string{"d.txt"}, SearchMethod::Index).get_size(), 0u);
 }
 
-// ФС виртуальная: ни одна операция не создаёт, не двигает и не удаляет настоящие файлы
 TEST_F(VfsTest, RealFilesAreNeverTouched) {
     vfs.import_directory(real("data"), "/");
     vfs.attach_file(real("a.txt"), "/data");
@@ -214,8 +208,8 @@ TEST_F(VfsTest, ImportDirectory) {
 
 TEST_F(VfsTest, ImportDirectoryErrors) {
     vfs.import_directory(real("data"), "/");
-    EXPECT_THROW(vfs.import_directory(real("data"), "/"), std::invalid_argument);  // Имя занято
-    EXPECT_THROW(vfs.import_directory(real("a.txt"), "/"), std::invalid_argument); // Не папка
+    EXPECT_THROW(vfs.import_directory(real("data"), "/"), std::invalid_argument);
+    EXPECT_THROW(vfs.import_directory(real("a.txt"), "/"), std::invalid_argument);
     EXPECT_EQ(names("/"), (ArraySequence<std::string>{"data"}));
 }
 
@@ -226,7 +220,6 @@ TEST_F(VfsTest, FileDeletedOutsideIsUnavailable) {
     EXPECT_EQ(file("/b.log").get_content().read_beginning(10), "");
 }
 
-// Пути хранятся в UTF-8: на Windows без u8path кириллическое имя не открылось бы
 TEST_F(VfsTest, CyrillicNames) {
     std::string name = "отчёт.txt";
     write(real_dir / fs::u8path(name), "текст");
@@ -236,7 +229,6 @@ TEST_F(VfsTest, CyrillicNames) {
     EXPECT_EQ(file("/документы/" + name).get_content().read_beginning(100), "текст");
 }
 
-// Число подкаталогов хранится в каталоге, а не считается обходом: проверяем, что оно не врёт
 TEST_F(VfsTest, SubdirectoryFlagFollowsOperations) {
     const Directory& root = vfs.get_root();
     vfs.add_file("/", "generated.txt", UnqPtr<GeneratedSource>::make());
@@ -273,7 +265,7 @@ TEST(VirtualDisk, AttachAndImportWithoutRealFiles) {
     vfs.import_directory("docs", "/", reader);
     EXPECT_TRUE(vfs.exists("/docs/sub/note.txt"));
     EXPECT_TRUE(vfs.exists("/copy.txt"));
-    EXPECT_EQ(vfs.find_files(by_extension, "txt", SearchMethod::Index).get_size(), 2);
+    EXPECT_EQ(vfs.find_files(by_extension, std::string{"txt"}, SearchMethod::Index).get_size(), 2u);
     EXPECT_THROW(vfs.attach_file("missing.txt", "/", "", reader), std::invalid_argument);
     EXPECT_FALSE(vfs.exists("/missing.txt"));
 }
@@ -292,9 +284,9 @@ TEST_F(VfsTest, TerminalAndEditorShareFileAndIndex) {
     EXPECT_EQ(execute_command(access, "cat \"план защиты.txt\"").output, text);
     access.make_directory("txt");
     EXPECT_EQ(execute_command(access, "ls").output, "txt/\nплан защиты.txt\n");
-    EXPECT_EQ(vfs.find_files(by_extension, "txt", SearchMethod::Index).get_size(), 1);
+    EXPECT_EQ(vfs.find_files(by_extension, std::string{"txt"}, SearchMethod::Index).get_size(), 1u);
     ASSERT_TRUE(execute_command(access, "rm \"план защиты.txt\"").changed);
-    EXPECT_EQ(vfs.find_files(by_extension, "txt", SearchMethod::Index).get_size(), 0);
+    EXPECT_EQ(vfs.find_files(by_extension, std::string{"txt"}, SearchMethod::Index).get_size(), 0u);
     ASSERT_TRUE(vfs.touch(path));
     EXPECT_THROW(vfs.save_text(path, file->get_id(), text), std::invalid_argument);
     EXPECT_TRUE(vfs.read_text(path).empty());
@@ -344,7 +336,7 @@ TEST_F(VfsTest, DirectoryLinkNavigationAndRemoval) {
     EXPECT_EQ(vfs.read_text("/мои лабы/работа.txt"), "готово");
     vfs.make_link("/", "/учёба/лабы/назад");
     for (auto method : {SearchMethod::Index, SearchMethod::FullScan})
-        EXPECT_EQ(vfs.find_files(by_extension, "txt", method).get_size(), 1);
+        EXPECT_EQ(vfs.find_files(by_extension, std::string{"txt"}, method).get_size(), 1u);
     access.change_directory("/мои лабы/назад/мои лабы");
     EXPECT_EQ(access.current_path(), "/учёба/лабы");
     access.change_directory("..");

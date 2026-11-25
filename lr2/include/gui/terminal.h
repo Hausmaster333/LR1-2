@@ -1,4 +1,5 @@
-#pragma once
+#ifndef TERMINAL_H
+#define TERMINAL_H
 
 #include <iostream>
 #include <string>
@@ -9,7 +10,6 @@
 #include <unistd.h>
 #endif
 
-// poll_line returns at most one complete command per frame.
 class Terminal {
     std::string pending, prompt_path;
     bool eof = false;
@@ -103,3 +103,5 @@ public:
         return true;
     }
 };
+
+#endif

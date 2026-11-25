@@ -12,12 +12,21 @@ template<class T>
 class ArraySequence {
 private:
     DynamicArray<T> array;
-    int count = 0;
+    std::size_t count = 0;
 
 public:
     ArraySequence() = default;
-    explicit ArraySequence(int size) : array(size), count(size) {}
-    ArraySequence(std::initializer_list<T> values) : array(values.begin(), static_cast<int>(values.size())), count(array.get_size()) {}
+    ArraySequence(const ArraySequence&) = default;
+    ArraySequence& operator=(const ArraySequence&) = default;
+    ArraySequence(ArraySequence&& other) noexcept
+        : array(std::move(other.array)), count(std::exchange(other.count, 0)) {}
+    ArraySequence& operator=(ArraySequence&& other) noexcept {
+        array = std::move(other.array);
+        count = std::exchange(other.count, 0);
+        return *this;
+    }
+    explicit ArraySequence(std::size_t size) : array(size), count(size) {}
+    ArraySequence(std::initializer_list<T> values) : array(values.begin(), values.size()), count(array.get_size()) {}
 
     std::size_t size() const { return count; }
     bool empty() const { return count == 0; }
@@ -37,13 +46,13 @@ public:
     T& back() { return (*this)[count - 1]; }
     const T& back() const { return (*this)[count - 1]; }
 
-    void reserve(int capacity) {
+    void reserve(std::size_t capacity) {
         if (capacity > array.get_size()) array.resize(capacity);
     }
 
     void push_back(T value) {
         if (count == array.get_size()) {
-            constexpr int limit = std::numeric_limits<int>::max();
+            constexpr std::size_t limit = std::numeric_limits<std::size_t>::max();
             if (count == limit) throw std::length_error("Sequence too large");
             reserve(count == 0 ? 4 : (count > limit / 2 ? limit : count * 2));
         }

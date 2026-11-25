@@ -1,4 +1,5 @@
-#pragma once
+#ifndef TEXT_EDITOR_H
+#define TEXT_EDITOR_H
 
 #include "imgui.h"
 #include "vfs/virtual_file_system.h"
@@ -82,3 +83,5 @@ public:
     }
     bool active() const { return static_cast<bool>(file); }
 };
+
+#endif

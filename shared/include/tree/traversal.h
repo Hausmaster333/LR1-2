@@ -113,8 +113,8 @@ template <class Node>
 class BFS {
     private:
         DynamicArray<Node> queue;
-        int head;
-        int tail;
+        std::size_t head;
+        std::size_t tail;
 
         void enqueue(Node node);
     public:
